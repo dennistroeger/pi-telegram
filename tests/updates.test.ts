@@ -35,18 +35,14 @@ test("Update helpers normalize emoji reactions and collect emoji-only entries", 
     { type: "custom_emoji" },
   ]);
   assert.deepEqual([...emojis], ["👍", "👎"]);
-  assert.deepEqual([...TELEGRAM_PRIORITY_REACTION_EMOJIS], [
-    "👍",
-    "⚡",
-    "❤",
-    "🕊",
-  ]);
-  assert.deepEqual([...TELEGRAM_REMOVAL_REACTION_EMOJIS], [
-    "👎",
-    "👻",
-    "💔",
-    "💩",
-  ]);
+  assert.deepEqual(
+    [...TELEGRAM_PRIORITY_REACTION_EMOJIS],
+    ["👍", "⚡", "❤", "🕊"],
+  );
+  assert.deepEqual(
+    [...TELEGRAM_REMOVAL_REACTION_EMOJIS],
+    ["👎", "👻", "💔", "💩"],
+  );
 });
 
 test("Update helpers extract deleted business-message ids only from Bot API shapes", () => {

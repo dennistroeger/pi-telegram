@@ -68,11 +68,17 @@ test("Prompt helpers build before-agent-start hooks", () => {
   assert.match(defaultSystemPrompt, /prefer narrow table columns/);
   assert.match(defaultSystemPrompt, /`\[reply\]` is quoted context/);
   assert.match(defaultSystemPrompt, /not a new instruction by itself/);
-  assert.match(defaultSystemPrompt, /`\[outputs\]` contains attachment-handler stdout/);
+  assert.match(
+    defaultSystemPrompt,
+    /`\[outputs\]` contains attachment-handler stdout/,
+  );
   assert.match(defaultSystemPrompt, /telegram_attach/);
   assert.match(defaultSystemPrompt, /telegram_voice text="Short summary"/);
   assert.match(defaultSystemPrompt, /telegram_button: OK/);
   assert.match(defaultSystemPrompt, /telegram_button label=Continue prompt=/);
-  assert.match(defaultSystemPrompt, /do not call or register transport\/TTS\/text-to-OGG tools/);
+  assert.match(
+    defaultSystemPrompt,
+    /do not call or register transport\/TTS\/text-to-OGG tools/,
+  );
   assert.match(defaultSystemPrompt, /no specific summary format is required/);
 });

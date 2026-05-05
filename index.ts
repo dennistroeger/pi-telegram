@@ -297,6 +297,7 @@ export default function (pi: Pi.ExtensionAPI) {
     getThinkingLevel,
     setThinkingLevel,
     setModel,
+    sendUserMessage,
     isIdle,
     hasPendingMessages,
     compact,

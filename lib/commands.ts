@@ -61,84 +61,61 @@ function formatTelegramBotCommandDescription(
   return `${formatTelegramCommandEmojiPrefix(command)}${description}`;
 }
 
-export const TELEGRAM_BUILTIN_BOT_COMMANDS: readonly TelegramBotCommandDefinition[] = [
-  {
-    command: "start",
-    description: formatTelegramBotCommandDescription(
-      "start",
-      "Open menu / Pair bridge",
-    ),
-  },
-  {
-    command: "compact",
-    description: formatTelegramBotCommandDescription(
-      "compact",
-      "Compact current session",
-    ),
-  },
-  {
-    command: "next",
-    description: formatTelegramBotCommandDescription(
-      "next",
-      "Force next turn",
-    ),
-  },
-  {
-    command: "continue",
-    description: formatTelegramBotCommandDescription(
-      "continue",
-      "Queue continue prompt",
-    ),
-  },
-  {
-    command: "abort",
-    description: formatTelegramBotCommandDescription("abort", "Abort π"),
-  },
-  {
-    command: "stop",
-    description: formatTelegramBotCommandDescription(
-      "stop",
-      "Abort π & Clear queue",
-    ),
-  },
-];
+export const TELEGRAM_BUILTIN_BOT_COMMANDS: readonly TelegramBotCommandDefinition[] =
+  [
+    {
+      command: "start",
+      description: formatTelegramBotCommandDescription(
+        "start",
+        "Open menu / Pair bridge",
+      ),
+    },
+    {
+      command: "compact",
+      description: formatTelegramBotCommandDescription(
+        "compact",
+        "Compact current session",
+      ),
+    },
+    {
+      command: "next",
+      description: formatTelegramBotCommandDescription(
+        "next",
+        "Force next turn",
+      ),
+    },
+    {
+      command: "continue",
+      description: formatTelegramBotCommandDescription(
+        "continue",
+        "Queue continue prompt",
+      ),
+    },
+    {
+      command: "abort",
+      description: formatTelegramBotCommandDescription("abort", "Abort π"),
+    },
+    {
+      command: "stop",
+      description: formatTelegramBotCommandDescription(
+        "stop",
+        "Abort π & Clear queue",
+      ),
+    },
+  ];
 
 export const TELEGRAM_BOT_COMMANDS = TELEGRAM_BUILTIN_BOT_COMMANDS;
-
-const TELEGRAM_MAX_BOT_COMMANDS = 100;
-const TELEGRAM_BOT_COMMAND_DESCRIPTION_LIMIT = 256;
-
-function truncateTelegramBotCommandDescription(description: string): string {
-  if (description.length <= TELEGRAM_BOT_COMMAND_DESCRIPTION_LIMIT) return description;
-  return `${description.slice(0, TELEGRAM_BOT_COMMAND_DESCRIPTION_LIMIT - 1)}…`;
-}
-
-export function buildTelegramBotCommands(
-  promptTemplates: readonly TelegramPromptTemplateMenuCommand[] = [],
-): TelegramBotCommandDefinition[] {
-  const remainingSlots = TELEGRAM_MAX_BOT_COMMANDS - TELEGRAM_BUILTIN_BOT_COMMANDS.length;
-  const templateCommands = promptTemplates.slice(0, remainingSlots).map((template) => ({
-    command: template.command,
-    description: truncateTelegramBotCommandDescription(
-      `🧩 ${template.description?.trim() || "Prompt template"}`,
-    ),
-  }));
-  return [...TELEGRAM_BUILTIN_BOT_COMMANDS, ...templateCommands];
-}
 
 export interface TelegramBotCommandRegistrationDeps {
   setMyCommands: (
     commands: readonly TelegramBotCommandDefinition[],
   ) => Promise<unknown>;
-  getPromptTemplateCommands?: () => readonly TelegramPromptTemplateMenuCommand[];
 }
 
 export async function registerTelegramBotCommands(
   deps: TelegramBotCommandRegistrationDeps,
 ): Promise<void> {
-  await deps.setMyCommands(
-    buildTelegramBotCommands(deps.getPromptTemplateCommands?.()),
-  );
+  await deps.setMyCommands(TELEGRAM_BOT_COMMANDS);
 }
 
 export function createTelegramBotCommandRegistrar(
@@ -267,7 +244,10 @@ const TELEGRAM_RESERVED_COMMAND_NAME_SET = new Set<string>(
 export function isTelegramReservedCommandName(
   commandName: string | undefined,
 ): commandName is TelegramReservedCommandName {
-  return commandName !== undefined && TELEGRAM_RESERVED_COMMAND_NAME_SET.has(commandName);
+  return (
+    commandName !== undefined &&
+    TELEGRAM_RESERVED_COMMAND_NAME_SET.has(commandName)
+  );
 }
 
 export type TelegramCommandAction =
@@ -600,8 +580,10 @@ export function buildTelegramAppMenuHtml(
   statusHtml: string,
   promptTemplates: readonly TelegramPromptTemplateMenuCommand[] = [],
 ): string {
-  const promptTemplateHtml = buildTelegramPromptTemplateMenuHtml(promptTemplates);
-  if (!promptTemplateHtml) return `${TELEGRAM_APP_MENU_INTRO_HTML}\n\n${statusHtml}`;
+  const promptTemplateHtml =
+    buildTelegramPromptTemplateMenuHtml(promptTemplates);
+  if (!promptTemplateHtml)
+    return `${TELEGRAM_APP_MENU_INTRO_HTML}\n\n${statusHtml}`;
   return `${TELEGRAM_APP_MENU_INTRO_HTML}\n\n${promptTemplateHtml}\n\n${statusHtml}`;
 }
 
@@ -764,7 +746,7 @@ export async function handleTelegramCompactCommand(
     deps.isCompactionInProgress()
   ) {
     await deps.sendTextReply(
-      "Cannot compact while π or the Telegram queue is busy. Wait for queued turns to finish or send /stop first.",
+      "Cannot compact while π or the Telegram queue is busy. Wait for queued turns to finish or send /abort first.",
     );
     return;
   }
@@ -923,7 +905,6 @@ export function createTelegramCommandHandlerTargetRuntime<
     setAllowedUserId: deps.setAllowedUserId,
     registerBotCommands: createTelegramBotCommandRegistrar({
       setMyCommands: deps.setMyCommands,
-      getPromptTemplateCommands: deps.getPromptTemplateCommands,
     }),
     persistConfig: deps.persistConfig,
     sendTextReply: commandTargetRuntime.sendTextReply,
@@ -955,7 +936,11 @@ export function createTelegramCommandOrPromptRuntime<TMessage, TContext>(
       const firstMessage = messages[0];
       if (!firstMessage) return;
       const command = parseTelegramCommand(deps.extractRawText(messages));
-      const handled = await deps.handleCommand(command?.name, firstMessage, ctx);
+      const handled = await deps.handleCommand(
+        command?.name,
+        firstMessage,
+        ctx,
+      );
       if (handled) return;
       if (command?.name && deps.expandPromptTemplateCommand) {
         const expanded = deps.expandPromptTemplateCommand(
@@ -964,7 +949,10 @@ export function createTelegramCommandOrPromptRuntime<TMessage, TContext>(
         );
         if (expanded !== undefined) {
           await deps.enqueueTurn(
-            [deps.replaceMessageText(firstMessage, expanded), ...messages.slice(1)],
+            [
+              deps.replaceMessageText(firstMessage, expanded),
+              ...messages.slice(1),
+            ],
             ctx,
           );
           return;

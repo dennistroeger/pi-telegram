@@ -26,8 +26,18 @@ export type TelegramReactionType =
   | TelegramReactionTypeEmoji
   | TelegramReactionTypeNonEmoji;
 
-export const TELEGRAM_PRIORITY_REACTION_EMOJIS = ["👍", "⚡", "❤", "🕊"] as const;
-export const TELEGRAM_REMOVAL_REACTION_EMOJIS = ["👎", "👻", "💔", "💩"] as const;
+export const TELEGRAM_PRIORITY_REACTION_EMOJIS = [
+  "👍",
+  "⚡",
+  "❤",
+  "🕊",
+] as const;
+export const TELEGRAM_REMOVAL_REACTION_EMOJIS = [
+  "👎",
+  "👻",
+  "💔",
+  "💩",
+] as const;
 
 export interface TelegramUpdateDeletion {
   deleted_business_messages?: { message_ids?: unknown };
@@ -66,7 +76,9 @@ function hasAddedTelegramReactionEmoji(
   newEmojis: Set<string>,
   candidates: readonly string[],
 ): boolean {
-  return candidates.some((emoji) => !oldEmojis.has(emoji) && newEmojis.has(emoji));
+  return candidates.some(
+    (emoji) => !oldEmojis.has(emoji) && newEmojis.has(emoji),
+  );
 }
 
 export function extractDeletedTelegramMessageIds(
@@ -626,7 +638,14 @@ export async function handleAuthorizedTelegramReactionUpdate<TContext>(
       deps.ctx,
     );
   }
-  if (!hasAddedTelegramReactionEmoji(oldEmojis, newEmojis, TELEGRAM_PRIORITY_REACTION_EMOJIS)) return;
+  if (
+    !hasAddedTelegramReactionEmoji(
+      oldEmojis,
+      newEmojis,
+      TELEGRAM_PRIORITY_REACTION_EMOJIS,
+    )
+  )
+    return;
   deps.prioritizeQueuedTelegramTurnByMessageId(
     reactionUpdate.message_id,
     deps.ctx,

@@ -210,7 +210,12 @@ export async function execCommandTemplate(
   options: CommandTemplateExecOptions = {},
 ): Promise<CommandTemplateExecResult> {
   const maxAttempts = options.retry ?? 1;
-  let lastResult: CommandTemplateExecResult = { stdout: "", stderr: "", code: 1, killed: false };
+  let lastResult: CommandTemplateExecResult = {
+    stdout: "",
+    stderr: "",
+    code: 1,
+    killed: false,
+  };
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const result = await execCommandTemplateOnce(command, args, options);
     if (result.code === 0) return result;

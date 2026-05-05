@@ -409,13 +409,16 @@ export function buildTelegramStatusBarText(
     return `${label} ${theme.fg("muted", "disconnected")}`;
   if (!state.paired)
     return `${label} ${theme.fg("warning", "awaiting pairing")}`;
-  const queued = state.queuedStatus ? theme.fg("muted", state.queuedStatus) : "";
+  const queued = state.queuedStatus
+    ? theme.fg("muted", state.queuedStatus)
+    : "";
   if (state.compactionInProgress) {
     return `${label} ${theme.fg("accent", "compacting")}${queued}`;
   }
   if (state.processing) {
     const processingStatus = state.processingStatus ?? "processing";
-    const processingToken = processingStatus === "active" ? "warning" : "accent";
+    const processingToken =
+      processingStatus === "active" ? "warning" : "accent";
     return `${label} ${theme.fg(processingToken, processingStatus)}${queued}`;
   }
   return `${label} ${theme.fg("success", "connected")}`;

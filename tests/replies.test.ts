@@ -308,5 +308,9 @@ test("Dedup reset fires on agent_start through lifecycle hook", async () => {
     {} as Parameters<typeof hook>[1],
   );
   assert.equal(agentStartCalled, true);
-  assert.equal(dedup.shouldReply(42), true, "reset clears previous reply state");
+  assert.equal(
+    dedup.shouldReply(42),
+    true,
+    "reset clears previous reply state",
+  );
 });

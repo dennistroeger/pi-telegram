@@ -8,7 +8,6 @@ import test from "node:test";
 
 import {
   buildTelegramAppMenuHtml,
-  buildTelegramBotCommands,
   buildTelegramCommandAction,
   isTelegramReservedCommandName,
   formatTelegramCommandEmojiPrefix,
@@ -106,11 +105,6 @@ test("Command helpers expose Telegram bot command definitions", () => {
     },
   ];
   assert.deepEqual(TELEGRAM_BOT_COMMANDS, expectedBuiltins);
-  assert.deepEqual(buildTelegramBotCommands(), expectedBuiltins);
-  assert.deepEqual(buildTelegramBotCommands([{ command: "review", description: "Review changes" }]).at(-1), {
-    command: "review",
-    description: "🧩 Review changes",
-  });
 });
 
 test("Command helpers register Telegram bot commands through deps", async () => {
@@ -126,16 +120,6 @@ test("Command helpers register Telegram bot commands through deps", async () => 
     },
   })();
   assert.deepEqual(calls, [TELEGRAM_BOT_COMMANDS, TELEGRAM_BOT_COMMANDS]);
-  calls.length = 0;
-  await registerTelegramBotCommands({
-    setMyCommands: async (commands) => {
-      calls.push(commands);
-    },
-    getPromptTemplateCommands: () => [
-      { command: "review", description: "Review changes" },
-    ],
-  });
-  assert.deepEqual(calls, [buildTelegramBotCommands([{ command: "review", description: "Review changes" }])]);
 });
 
 test("Command helpers register pi setup and status commands", async () => {
@@ -620,7 +604,7 @@ test("Command helpers guard and complete compact command flow", async () => {
   });
   complete?.();
   assert.deepEqual(events, [
-    "reply:Cannot compact while π or the Telegram queue is busy. Wait for queued turns to finish or send /stop first.",
+    "reply:Cannot compact while π or the Telegram queue is busy. Wait for queued turns to finish or send /abort first.",
     "set:true",
     "status",
     "compact",
@@ -725,7 +709,9 @@ test("Command helpers execute status and model controls immediately", async () =
 
 test("Command helpers build the unified app menu from commands and status", () => {
   assert.equal(
-    buildTelegramAppMenuHtml("<b>Status:</b> <code>idle</code>\n<b>Context:</b> <code>1%</code>"),
+    buildTelegramAppMenuHtml(
+      "<b>Status:</b> <code>idle</code>\n<b>Context:</b> <code>1%</code>",
+    ),
     `${TELEGRAM_APP_MENU_INTRO_HTML}\n\n<b>Status:</b> <code>idle</code>\n<b>Context:</b> <code>1%</code>`,
   );
   assert.equal(

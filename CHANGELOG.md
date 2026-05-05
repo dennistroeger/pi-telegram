@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1: Layered Callback Interop
+
+- `[Callback Interop]` Unknown Telegram inline-button callback data that does not belong to pi-telegram-owned prefixes (`tgbtn:`, `menu:`, `model:`, `thinking:`, `status:`, `queue:`) is now forwarded to π as `[callback] <data>` after assistant-button, queue-menu, and app-menu handlers decline it. `docs/callback-namespaces.md` defines the shared callback namespace standard for layered extensions. Impact: layered π extensions can namespace and handle their own Telegram inline buttons without polling the same bot or forking pi-telegram.
+- `[Prompt Templates]` Prompt-template aliases stay visible only inside `/start` and are no longer registered in the Telegram bot command menu. Impact: reusable π workflows remain discoverable without making Telegram's global command menu noisy.
+- `[Package]` Bumped package metadata to `0.7.1` through npm and kept the lockfile in sync.
+
 ## 0.7.0: Unified App Menu & Command Template Hardening
 
 - `[Commands]` Visible Telegram bot command menu now exposes `/start`, `/compact`, `/next`, `/continue`, `/abort`, and `/stop`; `/help`, `/status`, `/model`, `/thinking`, and `/queue` remain hidden compatibility shortcuts. `/start`, `/help`, and `/status` open one unified app menu containing command help, status rows, and inline controls. Command emoji are centralized as fixed adornments in the commands domain and reused by matching menu buttons (`🤖` model, `🧠` thinking); `/next` uses `⏩` and `/continue` uses `▶️`. `/continue` enqueues a priority Telegram-owned `continue` prompt instead of forcing the next queued item or requiring π to be idle. Impact: the visible command surface is cleaner while existing operator muscle memory still works and skills can react to queued `continue` prompts.

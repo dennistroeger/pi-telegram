@@ -84,7 +84,7 @@ Use these inside the Telegram DM with your bot:
 - **`/stop`**: Abort the active run and clear all waiting Telegram queue items.
 - **`/abort`**: Abort the active run without touching the queue.
 
-Prompt-template commands: π prompt templates are mapped to Telegram-safe aliases (`fix-tests.md` becomes `/fix_tests`) and shown as compact command-only rows between the built-in commands and status rows in `/start`, then registered in the Telegram bot command menu unless the mapped name conflicts with a built-in Telegram bridge command or hidden shortcut. Sending `/template_name args` from Telegram expands the matching π prompt-template file and queues the expanded prompt like normal Telegram work.
+Prompt-template commands: π prompt templates are mapped to Telegram-safe aliases (`fix-tests.md` becomes `/fix_tests`) and shown as compact command-only rows between the built-in commands and status rows in `/start`. They are not registered in the Telegram bot command menu, keeping the bot menu focused on bridge controls. Sending `/template_name args` from Telegram expands the matching π prompt-template file and queues the expanded prompt like normal Telegram work.
 
 Hidden compatibility shortcuts: `/help` and `/status` open the same main application menu, `/model` opens the model section, `/thinking` opens the thinking section, and `/queue` opens the queue section. They are intentionally not shown in the bot command menu.
 
@@ -190,7 +190,7 @@ List the main risks first.
 <!-- telegram_button: OK -->
 ```
 
-Button prompts are routed back into the normal Telegram queue as prompt turns. Keep the opening comment unclosed until the body-ending `-->` for body-form buttons. Closed heads must use `prompt="..."` or the colon shorthand to create a button. Outbound handler details are documented in [`docs/outbound-handlers.md`](./docs/outbound-handlers.md).
+Button prompts are routed back into the normal Telegram queue as prompt turns. Keep the opening comment unclosed until the body-ending `-->` for body-form buttons. Closed heads must use `prompt="..."` or the colon shorthand to create a button. Unknown inline-button callbacks that do not belong to pi-telegram are forwarded to π as `[callback] <data>` so other extensions can namespace and handle their own Telegram buttons without polling the bot themselves; see the [Callback Namespace Standard](./docs/callback-namespaces.md). Outbound handler details are documented in [`docs/outbound-handlers.md`](./docs/outbound-handlers.md).
 
 ## Streaming
 

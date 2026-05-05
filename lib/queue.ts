@@ -817,11 +817,20 @@ export interface TelegramAgentEndHookRuntimeDeps<
   ) => void;
   clearPreview: (chatId: number) => Promise<void>;
   setPreviewPendingText: (text: string) => void;
-  finalizeMarkdownPreview: TelegramAgentEndRuntimeDeps<TTurn, TReplyMarkup>["finalizeMarkdownPreview"];
-  sendMarkdownReply: TelegramAgentEndRuntimeDeps<TTurn, TReplyMarkup>["sendMarkdownReply"];
+  finalizeMarkdownPreview: TelegramAgentEndRuntimeDeps<
+    TTurn,
+    TReplyMarkup
+  >["finalizeMarkdownPreview"];
+  sendMarkdownReply: TelegramAgentEndRuntimeDeps<
+    TTurn,
+    TReplyMarkup
+  >["sendMarkdownReply"];
   sendTextReply: TelegramAgentEndRuntimeDeps<TTurn>["sendTextReply"];
   sendQueuedAttachments: (turn: TTurn) => Promise<void>;
-  planOutboundReply?: TelegramAgentEndRuntimeDeps<TTurn, TReplyMarkup>["planOutboundReply"];
+  planOutboundReply?: TelegramAgentEndRuntimeDeps<
+    TTurn,
+    TReplyMarkup
+  >["planOutboundReply"];
   sendOutboundReplyArtifacts?: TelegramAgentEndRuntimeDeps<TTurn>["sendOutboundReplyArtifacts"];
 }
 

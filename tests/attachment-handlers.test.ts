@@ -214,7 +214,8 @@ test("Attachment template composition handlers execute steps in order", async ()
 });
 
 test("Attachment template composition wraps timeout and pipes stdout to stdin", async () => {
-  const calls: Array<{ command: string; stdin?: string; timeout?: number }> = [];
+  const calls: Array<{ command: string; stdin?: string; timeout?: number }> =
+    [];
   const result = await processTelegramAttachmentHandlers({
     files: [{ path: "/tmp/voice.ogg", mimeType: "audio/ogg", kind: "voice" }],
     rawText: "",
@@ -341,17 +342,17 @@ test("Attachment handler composition: non-critical failure continues to next ste
   const result = await processTelegramAttachmentHandlers({
     files: [{ path: "/tmp/in.ogg", mimeType: "audio/ogg", kind: "voice" }],
     rawText: "",
-    handlers: [{
-      type: "voice",
-      template: [
-        "scan --file {file}",
-        "transcribe --file {file}",
-      ],
-    }],
+    handlers: [
+      {
+        type: "voice",
+        template: ["scan --file {file}", "transcribe --file {file}"],
+      },
+    ],
     cwd: "/work",
     execCommand: async (command) => {
       calls.push(command);
-      if (command === "scan") return { stdout: "", stderr: "skip", code: 1, killed: false };
+      if (command === "scan")
+        return { stdout: "", stderr: "skip", code: 1, killed: false };
       return { stdout: "transcribed\n", stderr: "", code: 0, killed: false };
     },
   });
@@ -364,18 +365,21 @@ test("Attachment handler composition: critical failure aborts composition", asyn
   const result = await processTelegramAttachmentHandlers({
     files: [{ path: "/tmp/in.ogg", mimeType: "audio/ogg", kind: "voice" }],
     rawText: "",
-    handlers: [{
-      type: "voice",
-      template: [
-        { template: "scan --file {file}", critical: true },
-        "transcribe --file {file}",
-        "summarize --file {file}",
-      ],
-    }],
+    handlers: [
+      {
+        type: "voice",
+        template: [
+          { template: "scan --file {file}", critical: true },
+          "transcribe --file {file}",
+          "summarize --file {file}",
+        ],
+      },
+    ],
     cwd: "/work",
     execCommand: async (command) => {
       calls.push(command);
-      if (command === "scan") return { stdout: "", stderr: "fatal", code: 1, killed: false };
+      if (command === "scan")
+        return { stdout: "", stderr: "fatal", code: 1, killed: false };
       return { stdout: "ok\n", stderr: "", code: 0, killed: false };
     },
   });
@@ -388,19 +392,19 @@ test("Attachment handler composition: non-critical failure continues, critical s
   const result = await processTelegramAttachmentHandlers({
     files: [{ path: "/tmp/in.ogg", mimeType: "audio/ogg", kind: "voice" }],
     rawText: "",
-    handlers: [{
-      type: "voice",
-      template: [
-        "step-a",
-        { template: "step-b", critical: true },
-        "step-c",
-      ],
-    }],
+    handlers: [
+      {
+        type: "voice",
+        template: ["step-a", { template: "step-b", critical: true }, "step-c"],
+      },
+    ],
     cwd: "/work",
     execCommand: async (command) => {
       calls.push(command);
-      if (command === "step-a") return { stdout: "a\n", stderr: "", code: 0, killed: false };
-      if (command === "step-b") return { stdout: "", stderr: "boom", code: 1, killed: false };
+      if (command === "step-a")
+        return { stdout: "a\n", stderr: "", code: 0, killed: false };
+      if (command === "step-b")
+        return { stdout: "", stderr: "boom", code: 1, killed: false };
       return { stdout: "c\n", stderr: "", code: 0, killed: false };
     },
   });

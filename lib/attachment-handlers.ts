@@ -259,7 +259,9 @@ function getTelegramAttachmentCompositionStepTimeout(
     startedAt,
   );
   const stepTimeout = getTelegramAttachmentHandlerConfiguredTimeout(step);
-  return stepTimeout === undefined ? remaining : Math.min(stepTimeout, remaining);
+  return stepTimeout === undefined
+    ? remaining
+    : Math.min(stepTimeout, remaining);
 }
 
 function getTelegramAttachmentHandlerKind(
@@ -300,7 +302,9 @@ async function executeTelegramAttachmentHandlerInvocation(
   const result = await deps.execCommand(invocation.command, invocation.args, {
     cwd,
     timeout,
-    ...(typeof handler === "object" && handler.retry !== undefined ? { retry: handler.retry } : {}),
+    ...(typeof handler === "object" && handler.retry !== undefined
+      ? { retry: handler.retry }
+      : {}),
     ...(stdin !== undefined ? { stdin } : {}),
   });
   if (result.code !== 0)

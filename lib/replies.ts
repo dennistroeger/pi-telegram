@@ -391,7 +391,9 @@ export function dedupSendTextReply(
   options?: { parseMode?: "HTML" },
 ) => Promise<number | undefined> {
   return async (chatId, replyToMessageId, text, options) => {
-    const effectiveReplyTo = dedup.shouldReply(replyToMessageId) ? replyToMessageId : undefined;
+    const effectiveReplyTo = dedup.shouldReply(replyToMessageId)
+      ? replyToMessageId
+      : undefined;
     return inner(chatId, effectiveReplyTo, text, options);
   };
 }
@@ -412,7 +414,9 @@ export function dedupSendMarkdownReply<TReplyMarkup = unknown>(
   options?: { replyMarkup?: TReplyMarkup },
 ) => Promise<number | undefined> {
   return async (chatId, replyToMessageId, markdown, options) => {
-    const effectiveReplyTo = dedup.shouldReply(replyToMessageId) ? replyToMessageId : undefined;
+    const effectiveReplyTo = dedup.shouldReply(replyToMessageId)
+      ? replyToMessageId
+      : undefined;
     return inner(chatId, effectiveReplyTo, markdown, options);
   };
 }

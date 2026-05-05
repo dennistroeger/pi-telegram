@@ -66,7 +66,9 @@ test("Voice reply planner supports text attribute comments", () => {
   assert.deepEqual(plan, {
     markdown: "Text before.",
     voiceText: "Inline spoken summary.",
-    voiceReplies: [{ text: "Inline spoken summary.", lang: "ru", rate: "+10%" }],
+    voiceReplies: [
+      { text: "Inline spoken summary.", lang: "ru", rate: "+10%" },
+    ],
     lang: "ru",
     rate: "+10%",
   });
@@ -857,10 +859,7 @@ test("Voice reply composition: non-critical failure continues to next step", asy
   const path = await generateTelegramVoiceReplyFile("hello", {
     handler: {
       type: "voice",
-      template: [
-        "preprocess {text}",
-        "synthesize {text}",
-      ],
+      template: ["preprocess {text}", "synthesize {text}"],
     },
     execCommand: async (command) => {
       calls.push(command);
@@ -932,9 +931,19 @@ test("Voice reply composition: full CI-like pipeline with retry and critical", a
             const result = await execOnce();
             if (result.code === 0) return result;
           }
-          return { stdout: "", stderr: "all retries exhausted", code: 1, killed: false };
+          return {
+            stdout: "",
+            stderr: "all retries exhausted",
+            code: 1,
+            killed: false,
+          };
         }
-        return { stdout: "/tmp/shipped.ogg\n", stderr: "", code: 0, killed: false };
+        return {
+          stdout: "/tmp/shipped.ogg\n",
+          stderr: "",
+          code: 0,
+          killed: false,
+        };
       },
     });
   } catch (e) {

@@ -1386,7 +1386,9 @@ test("Queue menu keeps main-menu navigation on top", async () => {
       statusSummary: "queued <prompt>",
       sourceMessageIds: [10],
       queuedAttachments: [],
-      content: [{ type: "text", text: "[telegram] queued <prompt>\n\nfull body" }],
+      content: [
+        { type: "text", text: "[telegram] queued <prompt>\n\nfull body" },
+      ],
       historyText: "",
     },
   ];

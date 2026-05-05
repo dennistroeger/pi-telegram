@@ -2213,7 +2213,13 @@ test("Session runtime helper runs start side effects in order", async () => {
       events.push("status");
     },
   });
-  assert.deepEqual(events, ["load", "state:gpt-5", "temp", "bind:ctx", "status"]);
+  assert.deepEqual(events, [
+    "load",
+    "state:gpt-5",
+    "temp",
+    "bind:ctx",
+    "status",
+  ]);
 });
 
 test("Session runtime helper clears shutdown state", () => {

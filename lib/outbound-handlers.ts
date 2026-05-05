@@ -476,7 +476,9 @@ async function runVoiceReplyCommand(
     {
       cwd: options.cwd,
       timeout: options.timeout,
-      ...(typeof config === "object" && config.retry !== undefined ? { retry: config.retry } : {}),
+      ...(typeof config === "object" && config.retry !== undefined
+        ? { retry: config.retry }
+        : {}),
       ...(options.stdin !== undefined ? { stdin: options.stdin } : {}),
     },
   );

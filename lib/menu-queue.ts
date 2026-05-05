@@ -24,11 +24,13 @@ function getTelegramQueueItemPromptText<Context>(
   item: Queue.TelegramQueueItem<Context>,
 ): string {
   if (item.kind !== "prompt") return item.statusSummary;
-  return item.content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("\n")
-    .trim() || item.statusSummary;
+  return (
+    item.content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("\n")
+      .trim() || item.statusSummary
+  );
 }
 function toTelegramQueueMenuItems<Context>(
   items: readonly Queue.TelegramQueueItem<Context>[],

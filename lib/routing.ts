@@ -71,11 +71,14 @@ export interface TelegramInboundRouteRuntimeDeps<
     text: string,
   ) => Promise<number | undefined>;
   setMyCommands: Commands.TelegramBotCommandRegistrationDeps["setMyCommands"];
-  getCommands: () => Parameters<typeof PromptTemplates.getTelegramPromptTemplateCommands>[0];
+  getCommands: () => Parameters<
+    typeof PromptTemplates.getTelegramPromptTemplateCommands
+  >[0];
   downloadFile: Media.DownloadTelegramMessageFilesDeps["downloadFile"];
   getThinkingLevel: () => Model.ThinkingLevel;
   setThinkingLevel: (level: Model.ThinkingLevel) => void;
   setModel: (model: TModel) => Promise<boolean>;
+  sendUserMessage?: (message: string) => void;
   isIdle: (ctx: TContext) => boolean;
   hasPendingMessages: (ctx: TContext) => boolean;
   compact: (
@@ -87,6 +90,21 @@ export interface TelegramInboundRouteRuntimeDeps<
     error: unknown,
     details?: Record<string, unknown>,
   ) => void;
+}
+
+const TELEGRAM_OWNED_CALLBACK_PREFIXES = [
+  "menu:",
+  "model:",
+  "queue:",
+  "status:",
+  "tgbtn:",
+  "thinking:",
+] as const;
+
+function isTelegramOwnedCallbackData(data: string): boolean {
+  return TELEGRAM_OWNED_CALLBACK_PREFIXES.some((prefix) =>
+    data.startsWith(prefix),
+  );
 }
 
 export function createTelegramInboundRouteRuntime<
@@ -167,6 +185,16 @@ export function createTelegramInboundRouteRuntime<
     }
     const handledByQueue = await deps.queueMenuCallbackHandler(query, ctx);
     if (handledByQueue) return;
+    const callbackData = query.data;
+    if (
+      deps.sendUserMessage &&
+      callbackData &&
+      !isTelegramOwnedCallbackData(callbackData)
+    ) {
+      deps.sendUserMessage(`[callback] ${callbackData}`);
+      await deps.answerCallbackQuery(query.id);
+      return;
+    }
     await menuCallbackHandler(query, ctx);
   };
   const promptTurnBuilder = Turns.createTelegramPromptTurnRuntimeBuilder<
@@ -206,7 +234,9 @@ export function createTelegramInboundRouteRuntime<
     deps.queueMutationRuntime.append(continueTurn, ctx);
     deps.dispatchNextQueuedTelegramTurn(ctx);
   };
-  const reservedCommandNames = new Set(Commands.TELEGRAM_RESERVED_COMMAND_NAMES);
+  const reservedCommandNames = new Set(
+    Commands.TELEGRAM_RESERVED_COMMAND_NAMES,
+  );
   const getPromptTemplateCommands = () =>
     PromptTemplates.getTelegramPromptTemplateCommands(
       deps.getCommands(),

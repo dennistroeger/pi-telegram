@@ -129,7 +129,9 @@ test("Routing runtime forwards authorized text messages into prompt queueing", a
     },
     updateStatus: () => events.push("status"),
     dispatchNextQueuedTelegramTurn: () => events.push("dispatch"),
-    answerCallbackQuery: async () => undefined,
+    answerCallbackQuery: async (callbackQueryId) => {
+      events.push(`answer:${callbackQueryId}`);
+    },
     sendTextReply: async () => undefined,
     setMyCommands: async () => undefined,
     getCommands: () => [],
@@ -137,6 +139,9 @@ test("Routing runtime forwards authorized text messages into prompt queueing", a
     getThinkingLevel: () => "high",
     setThinkingLevel: () => undefined,
     setModel: async () => true,
+    sendUserMessage: (message) => {
+      events.push(`user:${message}`);
+    },
     isIdle: () => true,
     hasPendingMessages: () => false,
     compact: () => undefined,
@@ -178,5 +183,41 @@ test("Routing runtime forwards authorized text messages into prompt queueing", a
   assert.equal(
     continueTurn?.content[0]?.type === "text" ? continueTurn.content[0].text : "",
     "[telegram] continue",
+  );
+  await routeRuntime.handleUpdate(
+    {
+      callback_query: {
+        id: "cb-custom",
+        from: { id: 7, is_bot: false },
+        data: "vividfish:approve:123",
+        message: {
+          message_id: 13,
+          chat: { id: 100, type: "private" },
+          from: { id: 7, is_bot: false },
+        },
+      },
+    },
+    { cwd: "/repo" },
+  );
+  await routeRuntime.handleUpdate(
+    {
+      callback_query: {
+        id: "cb-owned",
+        from: { id: 7, is_bot: false },
+        data: "status:model",
+        message: {
+          message_id: 14,
+          chat: { id: 100, type: "private" },
+          from: { id: 7, is_bot: false },
+        },
+      },
+    },
+    { cwd: "/repo" },
+  );
+  assert.equal(events.includes("user:[callback] vividfish:approve:123"), true);
+  assert.equal(events.includes("answer:cb-custom"), true);
+  assert.equal(
+    events.some((event) => event.startsWith("user:[callback] status:model")),
+    false,
   );
 });

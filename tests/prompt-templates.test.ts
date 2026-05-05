@@ -83,16 +83,20 @@ test("Prompt-template command getter hides extension command conflicts", () => {
     getCommands,
     reservedCommandNames: TELEGRAM_RESERVED_COMMAND_NAMES,
   });
-  assert.deepEqual(getPromptTemplateCommands().map((command) => command.command), [
-    "review",
-  ]);
+  assert.deepEqual(
+    getPromptTemplateCommands().map((command) => command.command),
+    ["review"],
+  );
 });
 
 test("Prompt-template helpers parse and substitute arguments like pi templates", () => {
   const args = parsePromptTemplateArgs("one 'two words' \"three words\"");
   assert.deepEqual(args, ["one", "two words", "three words"]);
   assert.equal(
-    substitutePromptTemplateArgs("$1 | $2 | $@ | $ARGUMENTS | ${@:2} | ${@:2:1}", args),
+    substitutePromptTemplateArgs(
+      "$1 | $2 | $@ | $ARGUMENTS | ${@:2} | ${@:2:1}",
+      args,
+    ),
     "one | two words | one two words three words | one two words three words | two words three words | two words",
   );
 });
