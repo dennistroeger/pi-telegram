@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { createTelegramQueueMenuRuntime } from "../lib/menu-queue.ts";
 import {
   applyTelegramModelPageSelection,
   applyTelegramModelScopeSelection,
@@ -53,7 +54,6 @@ import {
   updateTelegramStatusMessage,
   updateTelegramThinkingMenuMessage,
 } from "../lib/menu.ts";
-import { createTelegramQueueMenuRuntime } from "../lib/menu-queue.ts";
 import type { MenuModel } from "../lib/model.ts";
 import type { TelegramQueueItem } from "../lib/queue.ts";
 
@@ -1388,8 +1388,9 @@ test("Queue menu keeps main-menu navigation on top", async () => {
       chatId: 1,
       replyToMessageId: 10,
       queueOrder: 1,
-      queueLane: "default",
+      queueLane: "priority",
       laneOrder: 1,
+      priorityEmoji: "🕊",
       statusSummary: "queued <prompt>",
       sourceMessageIds: [10],
       queuedAttachments: [],
@@ -1463,13 +1464,197 @@ test("Queue menu keeps main-menu navigation on top", async () => {
   await runtime.openQueueMenu(1, 2, "ctx");
   assert.equal(markups[0]?.inline_keyboard[0]?.[0]?.callback_data, "menu:back");
   assert.equal(markups[1]?.inline_keyboard[0]?.[0]?.callback_data, "menu:back");
+  assert.equal(
+    markups[0]?.inline_keyboard[1]?.[0]?.text,
+    "1. 🕊 queued <prompt>",
+  );
+  assert.deepEqual(markups[2]?.inline_keyboard[1], [
+    { text: "🐢 Deprioritize 🕊", callback_data: "queue:prio:1:10" },
+  ]);
+  assert.deepEqual(markups[2]?.inline_keyboard[2], [
+    { text: "🗑 Delete", callback_data: "queue:delete:1:10" },
+  ]);
   assert.deepEqual(markups[3]?.inline_keyboard, [
     [{ text: "⬆️ Main menu", callback_data: "menu:back" }],
   ]);
-  assert.equal(texts[0], "<b>Queue:</b>");
-  assert.equal(texts[2], "[telegram] queued &lt;prompt&gt;\n\nfull body");
-  assert.equal(texts[3], "<b>Queue is empty.</b>");
+  assert.equal(texts[0], "<b>⏳ Queue:</b>");
+  assert.equal(
+    texts[2],
+    "<pre>[telegram] queued &lt;prompt&gt;\n\nfull body</pre>",
+  );
+  assert.equal(texts[3], "<b>⏳ Queue is empty.</b>");
   assert.deepEqual(modes, ["html", "html", "html", "html"]);
+});
+
+test("Queue item detail renders prompt as raw preformatted HTML", async () => {
+  const state = createMenuState(2);
+  const longPathPrompt =
+    `[telegram]\n[attachments] /home/user/.pi/agent/tmp/telegram\n` +
+    `- /home/user/.pi/agent/tmp/telegram/file.txt\n${"&<>".repeat(2000)}`;
+  const texts: string[] = [];
+  const runtime = createTelegramQueueMenuRuntime<string>({
+    telegramQueueStore: {
+      getQueuedItems: () => [
+        {
+          kind: "prompt",
+          chatId: 1,
+          replyToMessageId: 10,
+          queueOrder: 1,
+          queueLane: "default",
+          laneOrder: 1,
+          statusSummary: "file prompt",
+          sourceMessageIds: [10],
+          queuedAttachments: [],
+          content: [{ type: "text", text: longPathPrompt }],
+          historyText: "",
+        },
+      ],
+      setQueuedItems: () => {},
+      hasQueuedItems: () => true,
+    },
+    queueMutationRuntime: {
+      append: () => {},
+      reorder: () => {},
+      clear: () => 0,
+      removeByMessageIds: () => 0,
+      clearPriorityByMessageId: () => false,
+      prioritizeByMessageId: () => false,
+    },
+    sendInteractiveMessage: async () => 99,
+    editInteractiveMessage: async (_chatId, _messageId, text) => {
+      texts.push(text);
+    },
+    answerCallbackQuery: async () => {},
+    getModelMenuState: async () => state,
+    getStoredModelMenuState: () => state,
+    storeModelMenuState: () => {},
+    updateStatusMessage: async () => {},
+    updateStatus: () => {},
+  });
+  await runtime.handleCallbackQuery(
+    {
+      id: "callback",
+      data: "queue:pick:1:10",
+      message: { chat: { id: 1 }, message_id: 2 },
+    },
+    "ctx",
+  );
+  assert.match(texts[0] ?? "", /^<pre>\[telegram\]/);
+  assert.match(texts[0] ?? "", /\/home\/user\/\.pi\/agent\/tmp\/telegram/);
+  assert.match(texts[0] ?? "", /&amp;&lt;&gt;/);
+  assert.match(texts[0] ?? "", /… \[truncated\]<\/pre>$/);
+  assert.ok((texts[0] ?? "").length < 4096);
+});
+
+test("Queue item delete requires confirmation", async () => {
+  const state = createMenuState(2);
+  const queuedItems: TelegramQueueItem<string>[] = [
+    {
+      kind: "prompt",
+      chatId: 1,
+      replyToMessageId: 10,
+      queueOrder: 1,
+      queueLane: "default",
+      laneOrder: 1,
+      statusSummary: "delete me",
+      sourceMessageIds: [10],
+      queuedAttachments: [],
+      content: [{ type: "text", text: "[telegram] delete me" }],
+      historyText: "",
+    },
+  ];
+  const texts: string[] = [];
+  const notices: Array<string | undefined> = [];
+  const markups: Array<{
+    inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+  }> = [];
+  const runtime = createTelegramQueueMenuRuntime<string>({
+    telegramQueueStore: {
+      getQueuedItems: () => queuedItems,
+      setQueuedItems: () => {},
+      hasQueuedItems: () => queuedItems.length > 0,
+    },
+    queueMutationRuntime: {
+      append: () => {},
+      reorder: () => {},
+      clear: () => 0,
+      removeByMessageIds: (messageIds) => {
+        const index = queuedItems.findIndex((item) =>
+          messageIds.includes(item.replyToMessageId),
+        );
+        if (index === -1) return 0;
+        queuedItems.splice(index, 1);
+        return 1;
+      },
+      clearPriorityByMessageId: () => false,
+      prioritizeByMessageId: () => false,
+    },
+    sendInteractiveMessage: async () => 99,
+    editInteractiveMessage: async (
+      _chatId,
+      _messageId,
+      text,
+      _mode,
+      replyMarkup,
+    ) => {
+      texts.push(text);
+      markups.push(replyMarkup);
+    },
+    answerCallbackQuery: async (_id, text) => {
+      notices.push(text);
+    },
+    getModelMenuState: async () => state,
+    getStoredModelMenuState: () => state,
+    storeModelMenuState: () => {},
+    updateStatusMessage: async () => {},
+    updateStatus: () => {},
+  });
+  await runtime.handleCallbackQuery(
+    {
+      id: "delete",
+      data: "queue:delete:1:10",
+      message: { chat: { id: 1 }, message_id: 2 },
+    },
+    "ctx",
+  );
+  assert.equal(queuedItems.length, 1);
+  assert.equal(texts[0], "<b>Delete this queued prompt?</b>");
+  assert.deepEqual(markups[0]?.inline_keyboard, [
+    [{ text: "🗑 Yes, delete", callback_data: "queue:confirm-delete:1:10" }],
+    [{ text: "❌ No", callback_data: "queue:keep:1:10" }],
+  ]);
+  await runtime.handleCallbackQuery(
+    {
+      id: "legacy-cancel",
+      data: "queue:cancel:1:10",
+      message: { chat: { id: 1 }, message_id: 2 },
+    },
+    "ctx",
+  );
+  assert.equal(queuedItems.length, 1);
+  assert.equal(texts[1], "<b>Delete this queued prompt?</b>");
+  await runtime.handleCallbackQuery(
+    {
+      id: "keep",
+      data: "queue:keep:1:10",
+      message: { chat: { id: 1 }, message_id: 2 },
+    },
+    "ctx",
+  );
+  assert.equal(queuedItems.length, 1);
+  assert.equal(texts[2], "<pre>[telegram] delete me</pre>");
+  assert.equal(notices[2], "Kept in queue.");
+  await runtime.handleCallbackQuery(
+    {
+      id: "confirm",
+      data: "queue:confirm-delete:1:10",
+      message: { chat: { id: 1 }, message_id: 2 },
+    },
+    "ctx",
+  );
+  assert.equal(queuedItems.length, 0);
+  assert.equal(texts[3], "<b>⏳ Queue is empty.</b>");
+  assert.equal(notices[3], "Deleted from queue.");
 });
 
 test("Menu helpers build model, thinking, and status UI payloads", () => {
@@ -1527,7 +1712,7 @@ test("Menu helpers build model, thinking, and status UI payloads", () => {
     statusMarkup.inline_keyboard[1]?.[0]?.text.startsWith("🧠 Thinking"),
     true,
   );
-  assert.equal(statusMarkup.inline_keyboard.at(-1)?.[0]?.text, "🔢 Queue: 3");
+  assert.equal(statusMarkup.inline_keyboard.at(-1)?.[0]?.text, "⏳ Queue: 3");
   assert.deepEqual(statusCallbackData, [
     "menu:model",
     "menu:thinking",

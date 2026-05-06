@@ -4,7 +4,7 @@ Command templates are the portable integration format for deterministic local au
 
 **Meta-contract:** transportable (bit-for-bit identical across projects), high-density (zero fluff), constant (evolve by crystallizing, not speculating), optimal minimum (add only when it hurts).
 
-**Scope:** portable command execution format — shell-free exec, composition/pipes, default timeout, critical-step branching, output artifact selection, handler-level fallback. Single JSON standard; no platform lock-in.
+**Scope:** portable command execution format — shell-free exec, composition/pipes, timeout (30s default), retry, critical-step branching, output artifact selection, handler-level fallback. Single JSON standard; no platform lock-in.
 
 ---
 
@@ -35,8 +35,9 @@ Common object fields:
 | `template` | Required command string or ordered composition array                                       |
 | `args`     | Optional placeholder-name declarations only; never stores defaults                         |
 | `defaults` | Placeholder default values by name                                                         |
-| `timeout`  | Optional execution timeout override in milliseconds; default `30000` (30s)                 |
+| `timeout`  | Optional execution timeout in milliseconds; default `30000` (30s)                          |
 | `output`   | Optional result selector; default `"stdout"`, or a "runtime value", e.g. `"ogg"`           |
+| `retry`    | Optional max attempts (including first); default `1`. Retries immediately on non-zero exit |
 | `critical` | Optional boolean; default `false`. When `true`, failure aborts the entire root composition |
 
 Storage paths, labels, selectors, descriptions, and registry-specific metadata belong to each extension's local schema.
@@ -118,7 +119,7 @@ template="echo 'literal words' {text}"
 
 Composition rules:
 
-- Execute leaves in order and stop on the first non-zero exit
+- Execute leaves in order; non-critical failures are recorded and execution continues, while `critical: true` failures abort the root composition
 - Treat the whole composition as one handler for selector matching and fallback
 - Top-level `args` and `defaults` apply to every leaf unless the leaf defines private values
 - Leaf `args` replace inherited `args`; leaf `defaults` merge over inherited defaults; `timeout` and `output` are not inherited into leaves
@@ -167,6 +168,21 @@ Set `critical: true` on any leaf to abort the entire root composition on failure
 
 A `critical` leaf in a nested composition still aborts the outermost root `template: [...]`. There is no per-branch scoping in the current standard.
 
+## Retry
+
+Set `retry: N` on a leaf to attempt execution up to `N` times (including the first). Retries happen immediately on non-zero exit. The first successful attempt stops the retry loop.
+
+```json
+{
+  "template": [
+    { "template": "npm install", "retry": 3 },
+    { "template": "npm test", "critical": true, "retry": 2 }
+  ]
+}
+```
+
+`npm install` is retried up to 3 times. `npm test` is retried up to 2 times; if all attempts fail, the critical step aborts the pipeline.
+
 ## Progressive Disclosure
 
 The standard uses a single `template` field that grows with the user's needs:
@@ -175,10 +191,10 @@ The standard uses a single `template` field that grows with the user's needs:
 string           → leaf command
 string[]         → sequential composition
 { template }     → leaf with defaults
-{ template, critical, output } → full leaf
+{ template, retry, critical, output } → full leaf
 ```
 
-Start with a string. Add composition when needed. Add critical when safety matters. Same contract, growing capability, no dead weight.
+Start with a string. Add composition when needed. Add retry when flaky. Add critical when safety matters. Same contract, growing capability, no dead weight.
 
 ## Tool Boundary
 

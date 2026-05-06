@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.1: Outbound Voice Translation Hotfix
+
+- `[Outbound Voice]` Composed voice handlers now pass the original `telegram_voice` text to the first pipeline step through stdin, then continue piping each step's stdout into the next step. Impact: translate-from-stdin voice pipelines can translate hidden voice text before TTS instead of failing with an empty first-step input.
+- `[Queue Menu]` Queue item detail previews now render prompt text inside a bounded raw `<pre>` block, and generic queue navigation/headings use the `⏳` waiting icon. Impact: absolute file paths and attachment references remain readable without Telegram interpreting slash-prefixed paths as commands, long previews are truncated below Telegram's message limit, and the queue surface has a clearer generic icon distinct from ordered-list or priority markers.
+- `[Queue Delete]` Queue item removal now uses explicit `🗑 Delete` wording and opens a two-button confirmation (`🗑 Yes, delete` / `❌ No`) before mutating the queue. Impact: accidental queue-item deletion is harder while the item detail flow remains compact.
+- `[Queue Priority]` Priority reactions now preserve the exact normalized promotion emoji and render it in both queue-menu rows and the π status-bar queued preview. Reaction metadata is grouped into semantic id ranges (`10..13` for priority, `20..23` for removal). Impact: `👍`, `⚡`, `❤️`, and `🕊️` keep the same priority semantics while making the user's chosen reaction visible across Telegram and TUI surfaces.
+- `[Configuration Docs]` Documented the configuration philosophy that rich visual/TUI setup stays minimal for now while agents can read README/docs and update `telegram.json` for advanced workflows. Impact: configuration guidance matches the extension's agent-assisted operator model without adding premature TUI surfaces.
+- `[Outbound Docs]` Tightened voice-handler critical-step wording around transform → TTS → conversion pipelines and handler-level fallbacks. Impact: docs now match translated voice pipelines without implying provider-specific TTS fallbacks.
+- `[Package]` Bumped package metadata to `0.8.1` and kept the lockfile in sync.
+- `[Command Template Docs]` Synchronized `docs/command-templates.md` bit-for-bit with the current portable standard shared by `pi-auto-tools`. Impact: the documented standard now includes retry, fail-open composition, critical-step abort semantics, and the 30s default timeout in the same wording across both extensions.
+- `[Lock Docs]` Synchronized `docs/locks.md` bit-for-bit with the extension-neutral Locks Standard shared by `pi-wakeup`. Impact: singleton ownership documentation no longer carries project-specific examples that prevent exact reuse across extensions.
+
 ## 0.8.0: Handler Bus
 
 - `[Inbound Handlers]` Added `inboundHandlers` as the provider-neutral Telegram → π transformation bus. Raw Telegram text can match `type: "text"`, `mime: "text/plain"`, or `mime: "text/*"`, receives text on stdin and `{text}`, and non-empty stdout replaces the prompt text before queueing; media/file handlers keep the existing `{file}`/`{mime}`/`{type}` behavior with optional independent selectors. Impact: translation, normalization, STT, OCR, and file extraction can share one command-template integration model.

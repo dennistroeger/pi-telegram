@@ -650,7 +650,7 @@ async function generateTelegramVoiceReplyFileWithHandler(
   const steps = getTelegramVoiceHandlerCompositionSteps(options.handler);
   if (steps.length > 0) {
     const startedAt = Date.now();
-    let stdout = "";
+    let stdout = text;
     for (const [index, step] of steps.entries()) {
       try {
         const result = await runVoiceReplyCommand(
@@ -665,7 +665,7 @@ async function generateTelegramVoiceReplyFileWithHandler(
               startedAt,
             ),
             execCommand: options.execCommand,
-            ...(index === 0 ? {} : { stdin: stdout }),
+            stdin: stdout,
           },
         );
         stdout = result.stdout;

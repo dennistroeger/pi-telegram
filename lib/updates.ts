@@ -26,18 +26,23 @@ export type TelegramReactionType =
   | TelegramReactionTypeEmoji
   | TelegramReactionTypeNonEmoji;
 
-export const TELEGRAM_PRIORITY_REACTION_EMOJIS = [
-  "👍",
-  "⚡",
-  "❤",
-  "🕊",
+export const TELEGRAM_PRIORITY_REACTIONS = [
+  { id: 10, name: "like", emoji: "👍" },
+  { id: 11, name: "lightning", emoji: "⚡" },
+  { id: 12, name: "heart", emoji: "❤" },
+  { id: 13, name: "dove", emoji: "🕊" },
 ] as const;
-export const TELEGRAM_REMOVAL_REACTION_EMOJIS = [
-  "👎",
-  "👻",
-  "💔",
-  "💩",
+export const TELEGRAM_REMOVAL_REACTIONS = [
+  { id: 20, name: "dislike", emoji: "👎" },
+  { id: 21, name: "ghost", emoji: "👻" },
+  { id: 22, name: "broken-heart", emoji: "💔" },
+  { id: 23, name: "poop", emoji: "💩" },
 ] as const;
+export const TELEGRAM_PRIORITY_REACTION_EMOJIS =
+  TELEGRAM_PRIORITY_REACTIONS.map((reaction) => reaction.emoji);
+export const TELEGRAM_REMOVAL_REACTION_EMOJIS = TELEGRAM_REMOVAL_REACTIONS.map(
+  (reaction) => reaction.emoji,
+);
 
 export interface TelegramUpdateDeletion {
   deleted_business_messages?: { message_ids?: unknown };
@@ -71,14 +76,21 @@ function hasAnyTelegramReactionEmoji(
   return candidates.some((emoji) => emojis.has(emoji));
 }
 
+function getAddedTelegramReactionEmoji(
+  oldEmojis: Set<string>,
+  newEmojis: Set<string>,
+  candidates: readonly string[],
+): string | undefined {
+  return candidates.find(
+    (emoji) => !oldEmojis.has(emoji) && newEmojis.has(emoji),
+  );
+}
 function hasAddedTelegramReactionEmoji(
   oldEmojis: Set<string>,
   newEmojis: Set<string>,
   candidates: readonly string[],
 ): boolean {
-  return candidates.some(
-    (emoji) => !oldEmojis.has(emoji) && newEmojis.has(emoji),
-  );
+  return !!getAddedTelegramReactionEmoji(oldEmojis, newEmojis, candidates);
 }
 
 export function extractDeletedTelegramMessageIds(
@@ -410,6 +422,7 @@ export interface TelegramUpdateRuntimeControllerDeps<
   prioritizeQueuedTelegramTurnByMessageId: (
     messageId: number,
     ctx: TContext,
+    priorityEmoji?: string,
   ) => boolean;
   pairTelegramUserIfNeeded: (userId: number, ctx: TContext) => Promise<boolean>;
   answerCallbackQuery: (
@@ -592,6 +605,7 @@ export interface AuthorizedTelegramReactionUpdateDeps<TContext> {
   prioritizeQueuedTelegramTurnByMessageId: (
     messageId: number,
     ctx: TContext,
+    priorityEmoji?: string,
   ) => boolean;
 }
 
@@ -638,17 +652,16 @@ export async function handleAuthorizedTelegramReactionUpdate<TContext>(
       deps.ctx,
     );
   }
-  if (
-    !hasAddedTelegramReactionEmoji(
-      oldEmojis,
-      newEmojis,
-      TELEGRAM_PRIORITY_REACTION_EMOJIS,
-    )
-  )
-    return;
+  const addedPriorityEmoji = getAddedTelegramReactionEmoji(
+    oldEmojis,
+    newEmojis,
+    TELEGRAM_PRIORITY_REACTION_EMOJIS,
+  );
+  if (!addedPriorityEmoji) return;
   deps.prioritizeQueuedTelegramTurnByMessageId(
     reactionUpdate.message_id,
     deps.ctx,
+    addedPriorityEmoji,
   );
 }
 

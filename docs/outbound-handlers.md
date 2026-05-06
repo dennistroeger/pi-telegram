@@ -112,7 +112,7 @@ For composed handlers, `output` selects the primary artifact after the compositi
 
 For one-step `template` handlers, stdout remains the default result channel: the command should print the generated OGG/Opus path.
 
-**Critical steps:** voice synthesis is a multi-step pipeline (TTS → ffmpeg → OGG). The ffmpeg conversion step is inherently critical — if it fails, the voice output is invalid. Mark it as `"critical": true` when a composed handler must abort after conversion failure instead of continuing to later non-critical steps. Keep the fallback chain (Mistral TTS → Groq TTS) as the safety net for persistent outages. See [Command Template Standard](./command-templates.md) for semantics.
+**Critical steps:** voice synthesis is often a multi-step transform → TTS → conversion pipeline. The final audio conversion step is inherently critical — if it fails, the voice output is invalid. Mark conversion steps as `"critical": true` when a composed handler must abort after conversion failure instead of continuing to later non-critical steps. Use multiple matching `type: "voice"` handlers when you need provider or command fallbacks. See [Command Template Standard](./command-templates.md) for semantics.
 
 ## Buttons Markup
 

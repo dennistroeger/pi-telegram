@@ -48,7 +48,12 @@ test("Outbound text handler transforms text and markdown replies", async () => {
       sent.push(`text:${text}`);
       return 1;
     },
-    sendMarkdownReply: async (_chatId, _replyToMessageId, markdown, options) => {
+    sendMarkdownReply: async (
+      _chatId,
+      _replyToMessageId,
+      markdown,
+      options,
+    ) => {
       sent.push(`markdown:${markdown}`);
       markdownOptions.push(options);
       return 2;
@@ -66,7 +71,10 @@ test("Outbound text handler transforms text and markdown replies", async () => {
     { command: "/tools/translate", stdin: "**hello**" },
     { command: "/tools/translate", stdin: "Continue" },
   ]);
-  assert.deepEqual(sent, ["text:translated:hello", "markdown:translated:**hello**"]);
+  assert.deepEqual(sent, [
+    "text:translated:hello",
+    "markdown:translated:**hello**",
+  ]);
   assert.deepEqual(markdownOptions, [
     {
       replyMarkup: {
@@ -99,7 +107,12 @@ test("Outbound text handler preserves inline buttons on transformed replies", as
       killed: false,
     }),
     sendTextReply: async () => 1,
-    sendMarkdownReply: async (_chatId, _replyToMessageId, markdown, options) => {
+    sendMarkdownReply: async (
+      _chatId,
+      _replyToMessageId,
+      markdown,
+      options,
+    ) => {
       sent.push({ markdown, replyMarkup: options?.replyMarkup });
       return 2;
     },
@@ -131,7 +144,12 @@ test("Outbound text handler transforms finalized markdown previews", async () =>
       code: 0,
       killed: false,
     }),
-    finalizeMarkdownPreview: async (_chatId, markdown, _replyToMessageId, options) => {
+    finalizeMarkdownPreview: async (
+      _chatId,
+      markdown,
+      _replyToMessageId,
+      options,
+    ) => {
       finalized.push(markdown);
       previewOptions.push(options);
       return true;
@@ -816,7 +834,7 @@ test("Voice reply generator runs configured TTS to OGG pipe", async () => {
   assert.match(path, /[0-9a-f-]+-voice\.ogg$/);
 });
 
-test("Voice reply generator pipes stdout to stdin and defaults composition output to stdout", async () => {
+test("Voice reply generator pipes initial text and stdout to stdin", async () => {
   const calls: Array<{
     command: string;
     args: string[];
@@ -855,7 +873,7 @@ test("Voice reply generator pipes stdout to stdin and defaults composition outpu
     {
       command: "/bin/prepare",
       args: ["hello"],
-      stdin: undefined,
+      stdin: "hello",
       timeout: 111000,
     },
     {

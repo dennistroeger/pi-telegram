@@ -3,8 +3,8 @@
  * Covers extraction, authorization, flow classification, execution planning, and runtime execution in one suite
  */
 
-import test from "node:test";
 import assert from "node:assert/strict";
+import test from "node:test";
 
 import {
   buildTelegramUpdateExecutionPlan,
@@ -16,13 +16,15 @@ import {
   executeTelegramUpdate,
   executeTelegramUpdatePlan,
   extractDeletedTelegramMessageIds,
-  TELEGRAM_PRIORITY_REACTION_EMOJIS,
-  TELEGRAM_REMOVAL_REACTION_EMOJIS,
   getAuthorizedTelegramCallbackQuery,
-  handleAuthorizedTelegramReactionUpdate,
   getAuthorizedTelegramEditedMessage,
   getAuthorizedTelegramMessage,
+  handleAuthorizedTelegramReactionUpdate,
   normalizeTelegramReactionEmoji,
+  TELEGRAM_PRIORITY_REACTION_EMOJIS,
+  TELEGRAM_PRIORITY_REACTIONS,
+  TELEGRAM_REMOVAL_REACTION_EMOJIS,
+  TELEGRAM_REMOVAL_REACTIONS,
 } from "../lib/updates.ts";
 
 const TEST_CONTEXT = "ctx";
@@ -36,13 +38,24 @@ test("Update helpers normalize emoji reactions and collect emoji-only entries", 
   ]);
   assert.deepEqual([...emojis], ["👍", "👎"]);
   assert.deepEqual(
-    [...TELEGRAM_PRIORITY_REACTION_EMOJIS],
-    ["👍", "⚡", "❤", "🕊"],
+    TELEGRAM_PRIORITY_REACTIONS.map((reaction) => [
+      reaction.id,
+      reaction.name,
+      reaction.emoji,
+    ]),
+    [
+      [10, "like", "👍"],
+      [11, "lightning", "⚡"],
+      [12, "heart", "❤"],
+      [13, "dove", "🕊"],
+    ],
   );
   assert.deepEqual(
-    [...TELEGRAM_REMOVAL_REACTION_EMOJIS],
-    ["👎", "👻", "💔", "💩"],
+    TELEGRAM_REMOVAL_REACTIONS.map((reaction) => reaction.id),
+    [20, 21, 22, 23],
   );
+  assert.deepEqual(TELEGRAM_PRIORITY_REACTION_EMOJIS, ["👍", "⚡", "❤", "🕊"]);
+  assert.deepEqual(TELEGRAM_REMOVAL_REACTION_EMOJIS, ["👎", "👻", "💔", "💩"]);
 });
 
 test("Update helpers extract deleted business-message ids only from Bot API shapes", () => {
@@ -374,8 +387,12 @@ test("Update runtime handles authorized reaction priority and removal effects", 
       events.push(`clear:${id}`);
       return true;
     },
-    prioritizeQueuedTelegramTurnByMessageId: (id: number) => {
-      events.push(`prioritize:${id}`);
+    prioritizeQueuedTelegramTurnByMessageId: (
+      id: number,
+      _ctx: string,
+      emoji?: string,
+    ) => {
+      events.push(`prioritize:${id}:${emoji}`);
       return true;
     },
   };
@@ -470,13 +487,13 @@ test("Update runtime handles authorized reaction priority and removal effects", 
     deps,
   );
   assert.deepEqual(events, [
-    "prioritize:10",
+    "prioritize:10:👍",
     "clear:11",
     "media:12",
     "remove:12",
-    "prioritize:13",
-    "prioritize:14",
-    "prioritize:15",
+    "prioritize:13:⚡",
+    "prioritize:14:❤",
+    "prioritize:15:🕊",
     "media:16",
     "remove:16",
     "media:17",
