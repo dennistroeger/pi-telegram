@@ -37,6 +37,12 @@ pi install git:github.com/llblab/pi-telegram
 
 ## Configure
 
+### Configuration Philosophy
+
+The extension intentionally keeps rich visual/TUI configuration minimal for now. Rich setup screens may arrive later, but they are not the main configuration surface yet.
+
+For advanced setup, ask an agent to read this `README.md` and the docs, then update `~/.pi/agent/telegram.json` for your workflow. Agents are good at small configuration changes, and this keeps the bridge simple while handler pipelines and operator preferences continue to evolve.
+
 ### 1. Telegram Bot
 
 1. Open [@BotFather](https://t.me/BotFather)

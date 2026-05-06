@@ -160,7 +160,7 @@ export function buildStatusReplyMarkup(
   }
   rows.push([
     {
-      text: `🔢 Queue: ${queueItemCount}`,
+      text: `⏳ Queue: ${queueItemCount}`,
       callback_data: "menu:queue",
     },
   ]);

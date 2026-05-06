@@ -48,8 +48,6 @@ import {
   handleTelegramToolExecutionEndRuntime,
   handleTelegramToolExecutionStartRuntime,
   isTelegramQueueItemAdmissionValid,
-  type PendingTelegramControlItem,
-  type PendingTelegramTurn,
   partitionTelegramQueueItemsForHistory,
   planNextTelegramQueueAction,
   planTelegramPromptEnqueue,
@@ -61,6 +59,8 @@ import {
   shutdownTelegramSessionRuntime,
   startTelegramSessionRuntime,
   TELEGRAM_QUEUE_LANE_CONTRACTS,
+  type PendingTelegramControlItem,
+  type PendingTelegramTurn,
   type TelegramQueueItem,
 } from "../lib/queue.ts";
 
@@ -380,8 +380,13 @@ test("Queue mutation controller binds queue accessors to runtime mutations", () 
     queuedItems.map((item) => item.statusSummary),
     ["control", "prompt", "appended"],
   );
-  assert.equal(controller.prioritizeByMessageId(11, "b"), true);
+  assert.equal(controller.prioritizeByMessageId(11, "b", "❤"), true);
   assert.equal(nextPriorityOrder, 8);
+  const reprioritized = queuedItems.find((item) => item.replyToMessageId === 1);
+  assert.equal(
+    reprioritized?.kind === "prompt" ? reprioritized.priorityEmoji : undefined,
+    "❤",
+  );
   assert.equal(controller.clearPriorityByMessageId(11, "c"), true);
   assert.equal(controller.removeByMessageIds([11], "d"), 1);
   assert.equal(controller.clear("e"), 2);
@@ -487,12 +492,25 @@ test("Queue mutation helpers apply and clear prompt priority without touching co
     [promptItem, controlItem],
     11,
     0,
+    "🕊",
   );
   assert.equal(prioritized.changed, true);
   assert.equal(prioritized.items[0]?.queueLane, "priority");
+  assert.equal(
+    prioritized.items[0]?.kind === "prompt"
+      ? prioritized.items[0].priorityEmoji
+      : undefined,
+    "🕊",
+  );
   const cleared = clearTelegramQueuePromptPriority(prioritized.items, 11);
   assert.equal(cleared.changed, true);
   assert.equal(cleared.items[0]?.queueLane, "default");
+  assert.equal(
+    cleared.items[0]?.kind === "prompt"
+      ? cleared.items[0].priorityEmoji
+      : "unexpected",
+    undefined,
+  );
   assert.equal(cleared.items[1]?.queueLane, "control");
 });
 
@@ -517,6 +535,7 @@ test("Queued status formatting marks priority prompts in the pi status bar", () 
     queueOrder: 4,
     queueLane: "priority",
     laneOrder: 0,
+    priorityEmoji: "❤",
     historyText: "prompt history",
   });
   const defaultPrompt: TelegramQueueItem = createQueueTestPromptTurn({
@@ -538,7 +557,7 @@ test("Queued status formatting marks priority prompts in the pi status bar", () 
       priorityPrompt,
       defaultPrompt,
     ]),
-    " +3: [⚡ status, ⚡ prompt, default]",
+    " +3: [⚡ status, ❤ prompt, default]",
   );
 });
 

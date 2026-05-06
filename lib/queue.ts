@@ -78,6 +78,7 @@ export interface PendingTelegramTurn extends TelegramQueueItemBase {
   queuedAttachments: QueuedAttachment[];
   content: TelegramPromptContent[];
   historyText: string;
+  priorityEmoji?: string;
 }
 
 export interface PendingTelegramControlItem<
@@ -304,6 +305,7 @@ export function clearTelegramQueuePromptPriority<TContext = unknown>(
       ...item,
       queueLane: "default" as const,
       laneOrder: item.queueOrder,
+      priorityEmoji: undefined,
     };
   });
   return { items: nextItems, changed };
@@ -313,6 +315,7 @@ export function prioritizeTelegramQueuePrompt<TContext = unknown>(
   items: TelegramQueueItem<TContext>[],
   messageId: number,
   laneOrder: number,
+  priorityEmoji = "⚡",
 ): { items: TelegramQueueItem<TContext>[]; changed: boolean } {
   let changed = false;
   const nextItems = items.map((item) => {
@@ -327,6 +330,7 @@ export function prioritizeTelegramQueuePrompt<TContext = unknown>(
       ...item,
       queueLane: "priority" as const,
       laneOrder,
+      priorityEmoji,
     };
   });
   return { items: nextItems, changed };
@@ -353,7 +357,7 @@ function formatTelegramQueueItemStatusSummary<TContext = unknown>(
   item: TelegramQueueItem<TContext>,
 ): string {
   if (item.queueLane === "priority") {
-    return `⚡ ${item.statusSummary}`;
+    return `${item.kind === "prompt" ? item.priorityEmoji ?? "⚡" : "⚡"} ${item.statusSummary}`;
   }
   return item.statusSummary;
 }
@@ -1161,7 +1165,11 @@ export interface TelegramQueueMutationController<TContext> {
   clear: (ctx: TContext) => number;
   removeByMessageIds: (messageIds: number[], ctx: TContext) => number;
   clearPriorityByMessageId: (messageId: number, ctx: TContext) => boolean;
-  prioritizeByMessageId: (messageId: number, ctx: TContext) => boolean;
+  prioritizeByMessageId: (
+    messageId: number,
+    ctx: TContext,
+    priorityEmoji?: string,
+  ) => boolean;
 }
 
 export interface TelegramControlQueueControllerDeps<TContext> {
@@ -1375,8 +1383,12 @@ export function createTelegramQueueMutationController<TContext>(
       ),
     clearPriorityByMessageId: (messageId, ctx) =>
       clearTelegramQueuePromptPriorityRuntime(messageId, buildRuntimeDeps(ctx)),
-    prioritizeByMessageId: (messageId, ctx) =>
-      prioritizeTelegramQueuePromptRuntime(messageId, buildRuntimeDeps(ctx)),
+    prioritizeByMessageId: (messageId, ctx, priorityEmoji) =>
+      prioritizeTelegramQueuePromptRuntime(
+        messageId,
+        buildRuntimeDeps(ctx),
+        priorityEmoji,
+      ),
   };
 }
 
@@ -1438,6 +1450,7 @@ export function clearTelegramQueuePromptPriorityRuntime<TContext>(
 export function prioritizeTelegramQueuePromptRuntime<TContext>(
   messageId: number,
   deps: TelegramQueueMutationRuntimeDeps<TContext>,
+  priorityEmoji?: string,
 ): boolean {
   const nextPriorityReactionOrder = deps.getNextPriorityReactionOrder?.();
   if (nextPriorityReactionOrder === undefined) return false;
@@ -1445,6 +1458,7 @@ export function prioritizeTelegramQueuePromptRuntime<TContext>(
     deps.getQueuedItems(),
     messageId,
     nextPriorityReactionOrder,
+    priorityEmoji,
   );
   if (!changed) return false;
   deps.setQueuedItems(items);
