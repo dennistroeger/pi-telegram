@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.2: External Update Interceptors
+
+- `[External Update Interceptors]` Added a versioned `globalThis` registry that lets layered pi extensions observe and optionally consume Telegram updates before pi-telegram's default routing. Impact: approval gates and other same-process extensions can react synchronously to Telegram callbacks without owning a second bot poller.
+- `[External Update Interceptors]` Validated the full v1 registry shape (`version`, `add`, and `dispatch`) before reusing a pre-existing global registry and documented the zero-coupling bootstrap contract. Impact: install-order interop stays safe even when another extension initializes the registry first.
+- `[Queue Menu]` Non-empty queue lists now keep the `🌀 Refresh` row below queued items, matching the empty-queue surface. Impact: users can manually refresh the queue screen while waiting for changes without navigating away.
+- `[Security]` Refreshed the lockfile to resolve the transitive `basic-ftp` audit advisory. Impact: release validation returns to a clean npm audit state.
+- `[Package]` Bumped package metadata to `0.9.2` and kept the lockfile in sync.
+
 ## 0.9.1: Model Detail Hotfix
 
 - `[Model Menu]` Detail-mode activation now preserves scoped `thinkingLevel` by resolving the selected scoped entry before falling back to the unscoped model list. Impact: scoped model shortcuts opened through the detail submenu keep their reasoning/thinking level.
