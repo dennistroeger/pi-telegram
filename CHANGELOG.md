@@ -3,8 +3,8 @@
 ## Unreleased: Proxy Support
 
 - `[Telegram API]` Introduced `TELEGRAM_API_BASE` constant for the Bot API base URL. Impact: centralizes the endpoint in one place and prepares for potential future URL changes.
-- `[Telegram API]` Added documentation for Node.js native HTTP/HTTPS proxy support via `HTTPS_PROXY`, `HTTP_PROXY`, and `NO_PROXY` environment variables (available since Node.js 20.18+, enabled by default in Node.js 22+). Impact: users in restricted regions can route traffic through proxies without adding runtime dependencies or configuration flags. SOCKS5 is explicitly out of scope for the zero-dependency core.
-- `[Docs]` Added Step 5 ("Configure Proxy") to `README.md`.
+- `[Telegram API]` Added documentation for Node.js native HTTP/HTTPS proxy support via `HTTPS_PROXY`, `HTTP_PROXY`, and `NO_PROXY` environment variables with explicit `NODE_USE_ENV_PROXY=1` / `--use-env-proxy` enablement. Impact: users in restricted regions can route traffic through proxies without adding runtime dependencies. SOCKS5 is explicitly out of scope for the zero-dependency core.
+- `[Docs]` Added Step 5 ("Configure an HTTP/HTTPS Proxy") to `README.md`.
 
 ## 0.9.5: Telegram Delivery Resilience Hotfix
 

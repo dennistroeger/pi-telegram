@@ -75,21 +75,22 @@ The bridge is session-local: only one π instance polls Telegram at a time. `/te
 
 The first user to message the bot becomes the exclusive owner of the bridge. The extension will only accept messages from this user.
 
-### 5. (Optional) Configure Proxy
+### 5. (Optional) Configure an HTTP/HTTPS Proxy
 
-If `api.telegram.org` is blocked or unreachable in your region, you can route traffic through an HTTP/HTTPS proxy using Node.js native proxy support (available since Node.js 20.18+, enabled by default in Node.js 22+):
+If `api.telegram.org` is blocked or unreachable in your region, you can route traffic through an HTTP/HTTPS proxy using Node.js native proxy support. Keep native proxy mode explicit because supported Node.js versions do not necessarily enable environment proxy variables by default:
 
 ```bash
 export HTTPS_PROXY="http://127.0.0.1:8083"
 export HTTP_PROXY="http://127.0.0.1:8083"
 export NO_PROXY="localhost,127.0.0.1"
+export NODE_USE_ENV_PROXY=1
 
 pi
 ```
 
-No additional dependencies or configuration flags are required. Native `fetch` reads `HTTP_PROXY` and `HTTPS_PROXY` from the environment automatically.
+Alternatively, start Node with `--use-env-proxy` when your launcher exposes Node flags. No additional runtime dependencies are required; native `fetch` reads `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` when Node's environment proxy mode is enabled.
 
-SOCKS5 is not supported in the zero-dependency core. For SOCKS5 proxies, use a local HTTP-to-SOCKS tunnel (e.g., `proxychains pi` or `tun2socks`).
+SOCKS5 is not supported in the zero-dependency core. For SOCKS5 proxies, run a local HTTP-to-SOCKS bridge or system tunnel and point `HTTP_PROXY` / `HTTPS_PROXY` at its HTTP endpoint.
 
 ## Usage
 
