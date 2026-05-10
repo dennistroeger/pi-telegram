@@ -11,6 +11,12 @@ import {
   type TelegramRenderMode,
 } from "./rendering.ts";
 
+export {
+  renderTelegramMessage,
+  type TelegramRenderedChunk,
+  type TelegramRenderMode,
+};
+
 // --- Reply Dedup ---
 
 /** Non-persistent reply deduplication for a single agent turn.
@@ -418,5 +424,28 @@ export function dedupSendMarkdownReply<TReplyMarkup = unknown>(
       ? replyToMessageId
       : undefined;
     return inner(chatId, effectiveReplyTo, markdown, options);
+  };
+}
+
+/**
+ * Guest reply sender: renders Markdown → HTML, sends via answerGuestQuery.
+ * Keeps guest rendering inside the replies domain so the orchestration layer
+ * (index.ts) does not import from rendering.ts directly.
+ */
+export function createGuestMarkdownReplySender(deps: {
+  renderTelegramMessage: (
+    text: string,
+    options?: { mode?: TelegramRenderMode },
+  ) => TelegramRenderedChunk[];
+  answerGuestQuery: (
+    guestQueryId: string,
+    text?: string,
+    options?: { parseMode?: string },
+  ) => Promise<void>;
+}) {
+  return async (guestQueryId: string, markdown: string) => {
+    const chunks = deps.renderTelegramMessage(markdown, { mode: "markdown" });
+    const html = chunks.length > 0 ? chunks[0].text : markdown;
+    await deps.answerGuestQuery(guestQueryId, html, { parseMode: "HTML" });
   };
 }

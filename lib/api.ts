@@ -256,7 +256,11 @@ export interface TelegramApiClient {
     callbackQueryId: string,
     text?: string,
   ) => Promise<void>;
-  answerGuestQuery?: (guestQueryId: string, text?: string) => Promise<void>;
+  answerGuestQuery?: (
+    guestQueryId: string,
+    text?: string,
+    options?: { parseMode?: string },
+  ) => Promise<void>;
 }
 
 export interface TelegramBridgeApiRuntimeDeps {
@@ -314,7 +318,11 @@ export interface TelegramBridgeApiRuntime {
     callbackQueryId: string,
     text?: string,
   ) => Promise<void>;
-  answerGuestQuery: (guestQueryId: string, text?: string) => Promise<void>;
+  answerGuestQuery: (
+    guestQueryId: string,
+    text?: string,
+    options?: { parseMode?: string },
+  ) => Promise<void>;
   prepareTempDir: () => Promise<number>;
 }
 
@@ -785,14 +793,24 @@ export function createTelegramBridgeApiRuntime(
     answerCallbackQuery: (callbackQueryId, text) => {
       return deps.client.answerCallbackQuery(callbackQueryId, text);
     },
-    answerGuestQuery: (guestQueryId, text) => {
+    answerGuestQuery: (
+      guestQueryId: string,
+      text: string | undefined,
+      options: { parseMode?: string } | undefined,
+    ) => {
       const body: Record<string, unknown> = { guest_query_id: guestQueryId };
       if (text !== undefined) {
+        const inputContent: Record<string, unknown> = {
+          message_text: text,
+        };
+        if (options?.parseMode) {
+          inputContent.parse_mode = options.parseMode;
+        }
         body.result = {
           type: "article",
           id: "1",
-          title: text.length > 64 ? text.slice(0, 61) + "..." : text,
-          input_message_content: { message_text: text },
+          title: "Response",
+          input_message_content: inputContent,
         };
       }
       return callRecorded<void>("answerGuestQuery", body);

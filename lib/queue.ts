@@ -788,7 +788,8 @@ export interface TelegramAgentEndRuntimeDeps<
     text: string,
   ) => Promise<unknown>;
   sendQueuedAttachments: (turn: TTurn) => Promise<void>;
-  answerGuestQuery?: (guestQueryId: string, text?: string) => Promise<void>;
+  answerGuestQuery?: (guestQueryId: string, text?: string, options?: { parseMode?: string }) => Promise<void>;
+  sendGuestReply?: (guestQueryId: string, markdown: string) => Promise<void>;
   planOutboundReply?: (
     markdown: string,
   ) => TelegramAgentEndOutboundReplyPlan<TReplyMarkup>;
@@ -837,6 +838,7 @@ export interface TelegramAgentEndHookRuntimeDeps<
   sendTextReply: TelegramAgentEndRuntimeDeps<TTurn>["sendTextReply"];
   sendQueuedAttachments: (turn: TTurn) => Promise<void>;
   answerGuestQuery?: TelegramAgentEndRuntimeDeps<TTurn>["answerGuestQuery"];
+  sendGuestReply?: TelegramAgentEndRuntimeDeps<TTurn>["sendGuestReply"];
   planOutboundReply?: TelegramAgentEndRuntimeDeps<
     TTurn,
     TReplyMarkup
@@ -958,6 +960,7 @@ export function createTelegramAgentEndHook<
       sendTextReply: deps.sendTextReply,
       sendQueuedAttachments: deps.sendQueuedAttachments,
       answerGuestQuery: deps.answerGuestQuery,
+      sendGuestReply: deps.sendGuestReply,
       planOutboundReply: deps.planOutboundReply,
       sendOutboundReplyArtifacts: deps.sendOutboundReplyArtifacts,
       getDefaultChatId: deps.getDefaultChatId,
@@ -1027,7 +1030,11 @@ export async function handleTelegramAgentEndRuntime<
       return;
     }
     if (finalText) {
-      await deps.answerGuestQuery?.(turn.guestQueryId, finalText);
+      if (deps.sendGuestReply) {
+        await deps.sendGuestReply(turn.guestQueryId, finalText);
+      } else {
+        await deps.answerGuestQuery?.(turn.guestQueryId, finalText);
+      }
     }
     if (endPlan.shouldDispatchNext) deps.dispatchNextQueuedTelegramTurn();
     return;

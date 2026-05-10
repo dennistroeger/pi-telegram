@@ -570,7 +570,7 @@ test("Telegram bridge API runtime exposes typed Bot API helpers", async () => {
         result: {
           type: "article",
           id: "1",
-          title: "hello",
+          title: "Response",
           input_message_content: { message_text: "hello" },
         },
       },

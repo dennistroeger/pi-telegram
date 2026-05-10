@@ -157,6 +157,11 @@ export default function (pi: Pi.ExtensionAPI) {
 
   // --- Message Delivery & Preview ---
 
+  const sendGuestReply = Replies.createGuestMarkdownReplySender({
+    renderTelegramMessage: Replies.renderTelegramMessage,
+    answerGuestQuery,
+  });
+
   const promptDispatchRuntime =
     Runtime.createTelegramPromptDispatchRuntime<Pi.ExtensionContext>({
       lifecycle,
@@ -497,6 +502,7 @@ export default function (pi: Pi.ExtensionAPI) {
     sendTextReply,
     sendQueuedAttachments: queuedAttachmentSender,
     answerGuestQuery,
+    sendGuestReply,
     planOutboundReply: outboundReplyPlanner,
     sendOutboundReplyArtifacts: outboundReplyArtifactSender,
     isCurrentOwner: lockOwnershipGuard.ownsContext,
