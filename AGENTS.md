@@ -11,7 +11,7 @@
 
 ## 1. Concept
 
-`pi-telegram` is a π extension that turns a Telegram DM into a session-local frontend for π, including text/file forwarding, streaming previews, queued follow-ups, model controls, and outbound attachment delivery.
+`pi-telegram` is a Telegram Runtime Adapter for π: a session-local operator console that turns a private Telegram DM into a runtime surface for prompt intake, streaming previews, queue management, model/thinking/settings controls, inbound/outbound handler pipelines, voice/buttons, artifacts, and extension callback interop. Treat it as a Telegram membrane around π, not a narrow message pipe.
 
 ## 2. Identity & Naming Contract
 
@@ -28,7 +28,7 @@
 - `/tests/*.test.ts`: Domain-mirrored regression suites that follow the same flat naming as `/lib`
 - `/docs/README.md`: Documentation index for technical project docs
 - `/docs/architecture.md`: Runtime and subsystem overview for the bridge
-- `/README.md`: User-facing project entry point, install guide, and fork summary
+- `/README.md`: User-facing project entry point. Keep its rhythm as install → connect → use → core features → docs, with vivid examples that explain the runtime adapter/operator-console model without duplicating full docs.
 - `/AGENTS.md`: Durable engineering and runtime conventions
 - `/BACKLOG.md`: Canonical open work
 - `/CHANGELOG.md`: Completed delivery history
@@ -122,6 +122,8 @@ The canonical detailed ownership map lives in [`docs/architecture.md`](./docs/ar
 - When Telegram-visible behavior changes, sync `README.md` and the relevant `/docs` entry in the same pass
 - When durable runtime constraints or repeat bug patterns emerge, record them here instead of burying them in changelog prose
 - When fork identity changes, keep `README.md`, package metadata, and docs aligned so the published package does not point back at stale upstream coordinates
+- README positioning should emphasize `/start` as the primary Telegram operator menu and keep reaction shortcuts secondary. Reactions are useful queue affordances, but menu controls are the core CLI-to-Telegram bridge.
+- Document configuration knobs without UI in the root README when they affect bootstrap, networking, or transport limits; currently this includes token env bootstrap, Node env proxy mode, and inbound/outbound size limits.
 - Work only inside this repository during development tasks; updating the installed Pi extension checkout is a separate manual operator step, not part of normal in-repo implementation work
 
 ## 8. Integration Protocols

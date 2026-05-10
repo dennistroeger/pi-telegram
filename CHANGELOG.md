@@ -1,11 +1,12 @@
 # Changelog
 
-## Unreleased: Proxy Support
+## 0.9.6: Runtime Adapter Positioning
 
-- `[Telegram API]` Introduced `TELEGRAM_API_BASE` constant for the Bot API base URL. Impact: centralizes the endpoint in one place and prepares for potential future URL changes.
-- `[Telegram API]` Added documentation for Node.js native HTTP/HTTPS proxy support via `HTTPS_PROXY`, `HTTP_PROXY`, and `NO_PROXY` environment variables with explicit `NODE_USE_ENV_PROXY=1` / `--use-env-proxy` enablement. Impact: users in restricted regions can route traffic through proxies without adding runtime dependencies. SOCKS5 is explicitly out of scope for the zero-dependency core.
-- `[Docs]` Added Step 5 ("Configure an HTTP/HTTPS Proxy") to `README.md`.
-- `[Dependencies]` Refreshed the lockfile transitive dependency set so `npm audit` clears current `fast-uri` and `fast-xml-builder` advisories inherited through development peer installs. Impact: the full `npm run validate` pipeline passes again without changing runtime dependencies.
+- `[Package]` Bumped package metadata to `0.9.6` and repositioned the package description from "Better Telegram DM bridge extension for π" to "Telegram Runtime Adapter for π". Impact: package metadata now reflects the runtime adapter/operator-console role rather than a narrow pipe metaphor.
+- `[Telegram API]` Introduced `TELEGRAM_API_BASE` for the Bot API endpoint and documented native HTTP/HTTPS proxy operation through `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, and explicit `NODE_USE_ENV_PROXY=1` / `--use-env-proxy` enablement. Impact: users behind corporate proxies, local HTTP tunnels, or restricted networks get a zero-runtime-dependency proxy path without replacing native `fetch`; SOCKS5 remains outside the zero-dependency core.
+- `[Dependencies]` Refreshed the lockfile transitive dependency set so `npm audit` clears current `fast-uri` and `fast-xml-builder` advisories inherited through development peer installs. Impact: the full `npm run validate` pipeline passes without changing runtime dependencies.
+- `[README]` Restructured the user entrypoint around install → connect → use → core features → docs, then consolidated examples, terminology, proxy setup, `PI_CODING_AGENT_DIR`, and other environment-only configuration around the runtime-adapter/operator-console model. Impact: first-time users get a clearer path from installation to operation, while vivid examples and non-UI runtime knobs stay discoverable.
+- `[Context]` Promoted the runtime-adapter/operator-console README rhythm, `/start` menu emphasis, and environment-only configuration rule into `AGENTS.md`. Impact: future documentation edits preserve the same positioning and env-knob coverage instead of drifting back toward a narrow bridge metaphor.
 
 ## 0.9.5: Telegram Delivery Resilience Hotfix
 

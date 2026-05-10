@@ -12,7 +12,3 @@
   - Priority: Medium.
   - Idea: Replace broad peer dependency `*` ranges and dev dependency `latest` ranges with explicit compatible ranges once the supported pi/Node/TypeScript matrix is clear.
   - Exit: `package.json` documents the supported Node expectation and compatible pi package ranges without over-constraining early-stage extension iteration.
-- Revisit package positioning language.
-  - Priority: Low.
-  - Idea: The extension now behaves more like a Telegram operator console/runtime adapter than a simple DM bridge.
-  - Exit: README/package description uses positioning that matches queueing, rendering, callback, handler, voice/button, and extension-interoperability capabilities without overclaiming stability.
