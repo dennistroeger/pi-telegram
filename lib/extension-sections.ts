@@ -52,6 +52,8 @@ export interface TelegramSectionContext {
   open(view: TelegramSectionView): Promise<void>;
   enqueuePrompt(prompt: string): Promise<void>;
   callbackData(action: string, payload?: string): string;
+  /** Delete the message that triggered this callback (dialog cleanup) */
+  deleteMessage(): Promise<void>;
 }
 
 export interface TelegramSectionCallbackContext {
@@ -65,6 +67,8 @@ export interface TelegramSectionCallbackContext {
   open(view: TelegramSectionView): Promise<void>;
   enqueuePrompt(prompt: string): Promise<void>;
   callbackData(action: string, payload?: string): string;
+  /** Delete the message that triggered this callback (dialog cleanup) */
+  deleteMessage(): Promise<void>;
 }
 
 export interface RegisteredTelegramSection {
@@ -121,6 +125,7 @@ export interface TelegramSectionRuntimeDeps {
     replyMarkup: TelegramInlineKeyboardMarkup,
   ) => Promise<number | undefined>;
   enqueuePrompt: (prompt: string) => Promise<void>;
+  deleteMessage: (chatId: number, messageId: number) => Promise<void>;
 }
 
 function buildTelegramSectionContext(
@@ -165,6 +170,10 @@ function buildTelegramSectionContext(
       payload
         ? `section:${token}:${action}:${payload}`
         : `section:${token}:${action}`,
+    deleteMessage: () =>
+      messageId !== undefined
+        ? deps.deleteMessage(chatId, messageId)
+        : Promise.resolve(),
   };
 }
 
@@ -211,6 +220,10 @@ function buildTelegramSectionCallbackContext(
       payload
         ? `section:${token}:${action}:${payload}`
         : `section:${token}:${action}`,
+    deleteMessage: () =>
+      messageId !== undefined
+        ? deps.deleteMessage(chatId, messageId)
+        : Promise.resolve(),
   };
 }
 
@@ -402,6 +415,7 @@ export interface TelegramSectionCallbackHandlerDeps {
     replyMarkup: TelegramInlineKeyboardMarkup,
   ) => Promise<number | undefined>;
   enqueuePrompt: (prompt: string) => Promise<void>;
+  deleteMessage: (chatId: number, messageId: number) => Promise<void>;
 }
 
 export async function handleTelegramSectionOpen(

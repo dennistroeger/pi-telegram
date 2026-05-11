@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.2: Delete Message Port Hotfix
+
+- `[ctx.deleteMessage()]` Added `deleteMessage()` to `TelegramSectionContext` and `TelegramSectionCallbackContext`. Extensions can now delete the message that triggered a callback — useful for cleaning up confirmation dialogs after the user makes a choice.
+- `[API]` Added `deleteMessage` to `TelegramBridgeApiRuntime`, backed by Telegram's `deleteMessage` Bot API method with error recording.
+- `[Demo]` Confirmation dialog in `pi-telegram-extension-demo` now deletes itself on answer (`ctx.deleteMessage()`) and posts a follow-up result message (`ctx.open()`).
+- `[Docs]` Updated context port listings and interactive-messages section in `extension-sections.md` with `deleteMessage()`.
+
 ## 0.10.1: Navigation Abstraction Hotfix
 
 - `[ctx.open()]` Removed automatic Back-row prepend from `ctx.open()`. `ctx.open()` sends a new message into the chat — a Back button makes no sense outside the menu. `ctx.edit()` still auto-prepends the correct navigation row for in-menu views.

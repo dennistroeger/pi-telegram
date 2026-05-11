@@ -44,6 +44,7 @@ function stubDeps(
     editInteractiveMessage: async () => {},
     sendInteractiveMessage: async () => undefined,
     enqueuePrompt: async () => {},
+    deleteMessage: async () => {},
     ...overrides,
   };
 }

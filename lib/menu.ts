@@ -238,6 +238,7 @@ export interface TelegramMenuCallbackRuntimeDeps<
     replyMarkup: TelegramReplyMarkup,
   ) => Promise<number | undefined>;
   enqueueSectionPrompt?: (prompt: string, ctx: TContext) => Promise<void>;
+  deleteMessage?: (chatId: number, messageId: number) => Promise<void>;
 }
 
 export interface TelegramMenuActionRuntimeDeps<
@@ -471,6 +472,7 @@ export interface TelegramMenuCallbackRuntimeAdapterDeps<
     replyMarkup: TelegramReplyMarkup,
   ) => Promise<number | undefined>;
   enqueueSectionPrompt?: (prompt: string, ctx: TContext) => Promise<void>;
+  deleteMessage?: (chatId: number, messageId: number) => Promise<void>;
 }
 
 export function createTelegramMenuCallbackHandler<
@@ -514,6 +516,7 @@ export function createTelegramMenuCallbackHandlerForContext<
     editInteractiveMessage: deps.editInteractiveMessage,
     sendInteractiveMessage: deps.sendInteractiveMessage,
     enqueueSectionPrompt: deps.enqueueSectionPrompt,
+    deleteMessage: deps.deleteMessage,
   });
 }
 
@@ -570,6 +573,7 @@ export async function handleTelegramMenuCallbackRuntime<
               enqueuePrompt: deps.enqueueSectionPrompt
                 ? (prompt: string) => deps.enqueueSectionPrompt!(prompt, ctx)
                 : async () => {},
+              deleteMessage: deps.deleteMessage ?? (async () => {}),
             },
           );
           if (handled) return;
@@ -590,6 +594,7 @@ export async function handleTelegramMenuCallbackRuntime<
                 enqueuePrompt: deps.enqueueSectionPrompt
                   ? (prompt: string) => deps.enqueueSectionPrompt!(prompt, ctx)
                   : async () => {},
+                deleteMessage: deps.deleteMessage ?? (async () => {}),
               },
             );
             if (handled) return;
@@ -612,6 +617,7 @@ export async function handleTelegramMenuCallbackRuntime<
               enqueuePrompt: deps.enqueueSectionPrompt
                 ? (prompt: string) => deps.enqueueSectionPrompt!(prompt, ctx)
                 : async () => {},
+              deleteMessage: deps.deleteMessage ?? (async () => {}),
             },
           );
           if (handled) return;

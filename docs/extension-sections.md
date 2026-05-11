@@ -260,6 +260,8 @@ interface TelegramSectionContext {
   enqueuePrompt(prompt: string): Promise<void>;
   /** Build a section-namespaced callback_data string */
   callbackData(action: string, payload?: string): string;
+  /** Delete the message that triggered this callback */
+  deleteMessage(): Promise<void>;
 }
 ```
 
@@ -279,6 +281,8 @@ interface TelegramSectionCallbackContext {
   open(view: TelegramSectionView): Promise<void>;
   enqueuePrompt(prompt: string): Promise<void>;
   callbackData(action: string, payload?: string): string;
+  /** Delete the message that triggered this callback */
+  deleteMessage(): Promise<void>;
 }
 ```
 
@@ -325,14 +329,18 @@ handleCallback: async (ctx) => {
     return "handled";
   }
   if (ctx.action === "confirm-delete") {
-    // actual deletion logic
+    await ctx.deleteMessage();
     await ctx.answerCallback(`Deleted: ${ctx.payload}`);
+    return "handled";
+  }
+  if (ctx.action === "cancel") {
+    await ctx.deleteMessage();
     return "handled";
   }
 }
 ```
 
-Callbacks from chat buttons route through the same `handleCallback` — the same `ctx.callbackData()` works regardless of where the button lives. The extension owns its callback namespace; the bridge owns transport.
+`ctx.deleteMessage()` removes the dialog from chat after the user makes a choice. Callbacks from chat buttons route through the same `handleCallback` — the same `ctx.callbackData()` works regardless of where the button lives. The extension owns its callback namespace; the bridge owns transport.
 
 ## 10. Telegram Bot API Integration
 

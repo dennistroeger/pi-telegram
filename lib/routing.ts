@@ -96,6 +96,7 @@ export interface TelegramInboundRouteRuntimeDeps<
     mode: "html" | "plain",
     replyMarkup: Menu.TelegramReplyMarkup,
   ) => Promise<number | undefined>;
+  deleteMessage?: (chatId: number, messageId: number) => Promise<void>;
   answerGuestQuery: (guestQueryId: string, text?: string) => Promise<void>;
   sendTextReply: (
     chatId: number,
@@ -193,6 +194,7 @@ export function createTelegramInboundRouteRuntime<
     sectionRegistry: deps.sectionRegistry,
     editInteractiveMessage: deps.editInteractiveMessage,
     sendInteractiveMessage: deps.sendInteractiveMessage,
+    deleteMessage: deps.deleteMessage,
     enqueueSectionPrompt: async (prompt: string, ctx: TContext) => {
       const chatId = deps.configStore.getAllowedUserId();
       if (typeof chatId !== "number") return;

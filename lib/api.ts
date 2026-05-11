@@ -323,6 +323,7 @@ export interface TelegramBridgeApiRuntime {
     text?: string,
     options?: { parseMode?: string },
   ) => Promise<void>;
+  deleteMessage: (chatId: number, messageId: number) => Promise<void>;
   prepareTempDir: () => Promise<number>;
 }
 
@@ -668,6 +669,21 @@ export async function answerTelegramCallbackQuery(
   }
 }
 
+export async function deleteTelegramMessage(
+  botToken: string | undefined,
+  chatId: number,
+  messageId: number,
+): Promise<void> {
+  try {
+    await callTelegram<boolean>(botToken, "deleteMessage", {
+      chat_id: chatId,
+      message_id: messageId,
+    });
+  } catch {
+    // ignore
+  }
+}
+
 export function createTelegramChatActionSender<TAction extends string>(
   sendChatAction: (chatId: number, action: TAction) => Promise<unknown>,
   action: TAction,
@@ -817,6 +833,11 @@ export function createTelegramBridgeApiRuntime(
     },
     prepareTempDir: () =>
       prepareTelegramTempDir(deps.tempDir, deps.tempFileMaxAgeMs),
+    deleteMessage: (chatId, messageId) =>
+      callRecorded<boolean>("deleteMessage", {
+        chat_id: chatId,
+        message_id: messageId,
+      }).then(() => {}),
   };
 }
 

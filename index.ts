@@ -157,6 +157,7 @@ export default function (pi: Pi.ExtensionAPI) {
     editMessageText: editTelegramMessageText,
     answerCallbackQuery,
     answerGuestQuery,
+    deleteMessage: deleteTelegramMessage,
     prepareTempDir,
   } = Api.createDefaultTelegramBridgeApiRuntime({
     getBotToken: configStore.getBotToken,
@@ -354,6 +355,7 @@ export default function (pi: Pi.ExtensionAPI) {
     answerCallbackQuery,
     editInteractiveMessage,
     sendInteractiveMessage,
+    deleteMessage: deleteTelegramMessage,
     answerGuestQuery,
     sendTextReply,
     setMyCommands,
