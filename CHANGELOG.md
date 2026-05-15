@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.4: Polling Status Resilience Hotfix
+
+- `[Polling]` Status-bar updates from the polling loop are now best-effort and no longer crash the extension when a captured session context becomes stale after session reload. Failures are recorded as structured polling runtime events with `phase: "status-update"`. Impact: polling cleanup and retry status updates stay resilient without changing the Telegram API, config, or operator workflow.
+- `[Tests]` Added stale-context polling regressions for startup, cleanup, and retry status updates. Impact: the external PR #43 fix is now covered by maintainer-side tests and kept aligned with local style.
+
 ## 0.10.3: Dependency Audit Hotfix
 
 - `[Dependencies]` Refreshed the lockfile transitive dependency set to resolve current `protobufjs` / `@protobufjs/utf8` npm audit advisories inherited through development peer installs. Impact: `npm run validate` is green again without changing runtime API or bridge behavior.
