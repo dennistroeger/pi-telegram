@@ -4,6 +4,7 @@
 
 - `[Session Reloads]` Context-sensitive command, pairing, queue, session-start, and update-dispatch paths now ignore only stale-session/stale-context failures instead of swallowing broad runtime errors. Impact: the bridge survives ctx replacement/fork/reload races while real bugs still surface for diagnostics.
 - `[Runtime Status]` Restored status update error propagation so existing polling/dispatch safety wrappers can record stale status failures as structured runtime events instead of losing diagnostics inside the status domain.
+- `[Release]` Added a tag-triggered GitHub Actions release workflow that verifies the `vX.Y.Z` tag matches `package.json`, extracts the matching `CHANGELOG.md` section, and publishes a GitHub Release automatically.
 - `[Tests]` Added focused regressions proving the newly guarded call sites tolerate stale context errors and still rethrow unrelated failures.
 
 ## 0.10.6: Native Typing Keepalive Hotfix
