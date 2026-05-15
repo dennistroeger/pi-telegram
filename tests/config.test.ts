@@ -152,6 +152,31 @@ test("Telegram config helpers pair only when no user is configured", async () =>
   assert.deepEqual(events, ["set:10", "persist", "status:ctx"]);
 });
 
+test("Telegram config pairing swallows only stale context status errors", async () => {
+  await assert.doesNotReject(() =>
+    pairTelegramUserIfNeeded(10, {
+      ctx: "ctx",
+      setAllowedUserId: () => {},
+      persistConfig: async () => {},
+      updateStatus: () => {
+        throw new Error("ctx is stale after session replacement");
+      },
+    }),
+  );
+  await assert.rejects(
+    () =>
+      pairTelegramUserIfNeeded(10, {
+        ctx: "ctx",
+        setAllowedUserId: () => {},
+        persistConfig: async () => {},
+        updateStatus: () => {
+          throw new Error("status broke");
+        },
+      }),
+    /status broke/,
+  );
+});
+
 test("Telegram config pairing runtime binds config and status ports", async () => {
   const events: string[] = [];
   let allowedUserId: number | undefined;

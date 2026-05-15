@@ -1069,7 +1069,7 @@ test("Extension runtime handles immediate status before queued prompt after agen
     );
     await waitForCondition(() => runtimeEvents.length >= 3);
     assert.equal(runtimeEvents[0], "dispatch:[telegram] first request");
-    assert.match(runtimeEvents[1] ?? "", /^send:<b>π Telegram bridge<\/b>/);
+    assert.match(runtimeEvents[1] ?? "", /^send:<b>π Telegram<\/b>/);
     assert.equal(
       runtimeEvents[2],
       "dispatch:[telegram] follow up after status",
@@ -1796,7 +1796,7 @@ test("Extension runtime applies idle model picks immediately and refreshes statu
     assert.equal(
       runtimeEvents.some(
         (event) =>
-          event.startsWith("edit:<b>π Telegram bridge</b>") ||
+          event.startsWith("edit:<b>π Telegram</b>") ||
           event.startsWith("edit:<b>🤖 Choose a model:</b>"),
       ),
       true,

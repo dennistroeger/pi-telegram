@@ -579,7 +579,7 @@ export interface TelegramCommandRuntimeDeps<
 }
 
 export const TELEGRAM_APP_MENU_INTRO_HTML = [
-  "<b>π Telegram bridge</b>",
+  "<b>π Telegram</b>",
   "",
   `${formatTelegramCommandEmojiPrefix("start")}/start — Open menu / Pair bridge`,
   `${formatTelegramCommandEmojiPrefix("compact")}/compact — Compact current session`,
@@ -826,13 +826,23 @@ export async function handleTelegramCompactCommand(
   await deps.sendTextReply("Compaction started.");
 }
 
+function isTelegramStaleContextError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message.includes("stale after session") ||
+      error.message.includes("stale ctx"))
+  );
+}
+
 export async function handleTelegramStatusCommand<TContext>(deps: {
   ctx: TContext;
   showStatus: (ctx: TContext) => Promise<void>;
 }): Promise<void> {
   try {
     await deps.showStatus(deps.ctx);
-  } catch { /* ctx may be stale after session reload */ }
+  } catch (error) {
+    if (!isTelegramStaleContextError(error)) throw error;
+  }
 }
 
 export async function handleTelegramModelCommand<TContext>(deps: {
@@ -841,7 +851,9 @@ export async function handleTelegramModelCommand<TContext>(deps: {
 }): Promise<void> {
   try {
     await deps.openModelMenu(deps.ctx);
-  } catch { /* ctx may be stale after session reload */ }
+  } catch (error) {
+    if (!isTelegramStaleContextError(error)) throw error;
+  }
 }
 
 export async function executeTelegramCommandAction<TMessage, TContext>(

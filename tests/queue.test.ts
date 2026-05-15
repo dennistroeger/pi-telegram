@@ -477,6 +477,36 @@ test("Queue mutation runtime removes, sorts, and reprioritizes prompts", () => {
   ]);
 });
 
+test("Queue mutation runtime swallows only stale context status errors", () => {
+  let queuedItems: TelegramQueueItem<string>[] = [createQueueTestPromptTurn()];
+  const baseDeps = {
+    ctx: "ctx",
+    getQueuedItems: () => queuedItems,
+    setQueuedItems: (items: TelegramQueueItem<string>[]) => {
+      queuedItems = items;
+    },
+  };
+  assert.doesNotThrow(() =>
+    clearTelegramQueueItemsRuntime<string>({
+      ...baseDeps,
+      updateStatus: () => {
+        throw new Error("ctx is stale after session reload");
+      },
+    }),
+  );
+  queuedItems = [createQueueTestPromptTurn()];
+  assert.throws(
+    () =>
+      clearTelegramQueueItemsRuntime<string>({
+        ...baseDeps,
+        updateStatus: () => {
+          throw new Error("status broke");
+        },
+      }),
+    /status broke/,
+  );
+});
+
 test("Queue mutation helpers apply and clear prompt priority without touching control items", () => {
   const promptItem: TelegramQueueItem = createQueueTestPromptTurn({
     replyToMessageId: 1,
@@ -2366,6 +2396,36 @@ test("Session runtime helper runs start side effects in order", async () => {
     "bind:ctx",
     "status",
   ]);
+});
+
+test("Session runtime start swallows only stale deferred-dispatch context binding", async () => {
+  const currentModel = createQueueTestModel();
+  const baseDeps = {
+    ctx: "ctx",
+    currentModel,
+    loadConfig: async () => {},
+    applyState: () => {},
+    prepareTempDir: async () => {},
+    updateStatus: () => {},
+  };
+  await assert.doesNotReject(() =>
+    startTelegramSessionRuntime({
+      ...baseDeps,
+      bindDeferredDispatchContext: () => {
+        throw new Error("ctx is stale after session replacement");
+      },
+    }),
+  );
+  await assert.rejects(
+    () =>
+      startTelegramSessionRuntime({
+        ...baseDeps,
+        bindDeferredDispatchContext: () => {
+          throw new Error("bind broke");
+        },
+      }),
+    /bind broke/,
+  );
 });
 
 test("Session runtime helper clears shutdown state", () => {

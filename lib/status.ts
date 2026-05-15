@@ -319,17 +319,13 @@ export function createTelegramStatusRuntime<
   const statusKey = deps.statusKey ?? "telegram";
   return {
     updateStatus: (ctx, error) => {
-      try {
-        ctx.ui.setStatus(
-          statusKey,
-          buildTelegramStatusBarText(
-            ctx.ui.theme,
-            deps.getStatusBarState(ctx, error),
-          ),
-        );
-      } catch {
-        // ctx may be stale after session reload/fork
-      }
+      ctx.ui.setStatus(
+        statusKey,
+        buildTelegramStatusBarText(
+          ctx.ui.theme,
+          deps.getStatusBarState(ctx, error),
+        ),
+      );
     },
     getStatusLines: () =>
       buildTelegramBridgeStatusLines(deps.getBridgeStatusLineState()),

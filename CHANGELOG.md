@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.7: Stale Context Hardening Hotfix
+
+- `[Session Reloads]` Context-sensitive command, pairing, queue, session-start, and update-dispatch paths now ignore only stale-session/stale-context failures instead of swallowing broad runtime errors. Impact: the bridge survives ctx replacement/fork/reload races while real bugs still surface for diagnostics.
+- `[Runtime Status]` Restored status update error propagation so existing polling/dispatch safety wrappers can record stale status failures as structured runtime events instead of losing diagnostics inside the status domain.
+- `[Tests]` Added focused regressions proving the newly guarded call sites tolerate stale context errors and still rethrow unrelated failures.
+
 ## 0.10.6: Native Typing Keepalive Hotfix
 
 - `[Typing]` Telegram native `typing` chat actions now refresh every 2.5s instead of every 4s. Impact: the bot's Telegram-side typing animation has more headroom to stay visible during model retries, transient model/API errors, and other long-running agent work.

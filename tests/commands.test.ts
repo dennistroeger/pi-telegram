@@ -756,6 +756,25 @@ test("Command helpers execute status and model controls immediately", async () =
   assert.deepEqual(events, ["show:ctx", "model:ctx"]);
 });
 
+test("Command menu controls swallow only stale context errors", async () => {
+  await handleTelegramStatusCommand({
+    ctx: "ctx",
+    showStatus: async () => {
+      throw new Error("ctx is stale after session reload");
+    },
+  });
+  await assert.rejects(
+    () =>
+      handleTelegramModelCommand({
+        ctx: "ctx",
+        openModelMenu: async () => {
+          throw new Error("menu broke");
+        },
+      }),
+    /menu broke/,
+  );
+});
+
 test("Command helpers build the unified app menu from commands and status", () => {
   assert.equal(
     buildTelegramAppMenuHtml(

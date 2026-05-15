@@ -1289,6 +1289,14 @@ export interface TelegramPromptEnqueueController<TMessage, TContext = unknown> {
   enqueue: (messages: TMessage[], ctx: TContext) => Promise<void>;
 }
 
+function isTelegramStaleContextError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message.includes("stale after session") ||
+      error.message.includes("stale ctx"))
+  );
+}
+
 export function buildTelegramSessionStartState<TModel = unknown>(
   currentModel: TModel | undefined,
 ): TelegramSessionStartState<TModel> {
@@ -1326,7 +1334,11 @@ export async function startTelegramSessionRuntime<TContext, TModel = unknown>(
   await deps.loadConfig();
   deps.applyState(buildTelegramSessionStartState(deps.currentModel));
   await deps.prepareTempDir();
-  try { deps.bindDeferredDispatchContext?.(deps.ctx); } catch { /* stale ctx */ }
+  try {
+    deps.bindDeferredDispatchContext?.(deps.ctx);
+  } catch (error) {
+    if (!isTelegramStaleContextError(error)) throw error;
+  }
   deps.updateStatus();
 }
 
@@ -1478,7 +1490,11 @@ export function reorderTelegramQueueItemsRuntime<TContext>(
   deps.setQueuedItems(
     [...deps.getQueuedItems()].sort(compareTelegramQueueItems),
   );
-  try { deps.updateStatus(deps.ctx); } catch { /* stale ctx */ }
+  try {
+    deps.updateStatus(deps.ctx);
+  } catch (error) {
+    if (!isTelegramStaleContextError(error)) throw error;
+  }
 }
 
 export function clearTelegramQueueItemsRuntime<TContext>(
@@ -1487,7 +1503,11 @@ export function clearTelegramQueueItemsRuntime<TContext>(
   const removedCount = deps.getQueuedItems().length;
   if (removedCount === 0) return 0;
   deps.setQueuedItems([]);
-  try { deps.updateStatus(deps.ctx); } catch { /* stale ctx */ }
+  try {
+    deps.updateStatus(deps.ctx);
+  } catch (error) {
+    if (!isTelegramStaleContextError(error)) throw error;
+  }
   return removedCount;
 }
 
@@ -1501,7 +1521,11 @@ export function removeTelegramQueueItemsByMessageIdsRuntime<TContext>(
   );
   if (removedCount === 0) return 0;
   deps.setQueuedItems(items);
-  try { deps.updateStatus(deps.ctx); } catch { /* stale ctx */ }
+  try {
+    deps.updateStatus(deps.ctx);
+  } catch (error) {
+    if (!isTelegramStaleContextError(error)) throw error;
+  }
   return removedCount;
 }
 

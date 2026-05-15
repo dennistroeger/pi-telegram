@@ -185,6 +185,14 @@ export function getTelegramAuthorizationState(
   return { kind: "deny" };
 }
 
+function isTelegramStaleContextError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message.includes("stale after session") ||
+      error.message.includes("stale ctx"))
+  );
+}
+
 export async function pairTelegramUserIfNeeded<TContext>(
   userId: number,
   deps: TelegramUserPairingDeps<TContext>,
@@ -196,7 +204,11 @@ export async function pairTelegramUserIfNeeded<TContext>(
   if (authorization.kind !== "pair") return false;
   deps.setAllowedUserId(authorization.userId);
   await deps.persistConfig();
-  try { deps.updateStatus(deps.ctx); } catch { /* stale ctx */ }
+  try {
+    deps.updateStatus(deps.ctx);
+  } catch (error) {
+    if (!isTelegramStaleContextError(error)) throw error;
+  }
   return true;
 }
 
