@@ -5,11 +5,13 @@
  * Centralizes shutdown logic so the entrypoint remains a pure composition root.
  */
 
+import type { ExtensionAPI } from "./pi.ts";
+
 export function registerTelegramBridgeShutdownHandlers(
-  lifecycle: { on: (event: string, handler: () => void) => void },
+  lifecycle: Pick<ExtensionAPI, "on">,
   globalKeys: readonly string[],
 ): void {
-  lifecycle.on("shutdown", () => {
+  lifecycle.on("session_shutdown", () => {
     for (const key of globalKeys) {
       (globalThis as Record<string, unknown>)[key] = undefined;
     }

@@ -968,12 +968,15 @@ export function registerTelegramVoiceProvider(
   const id = options?.id ?? `voice-provider-${registry.size}`;
   let normalized: TelegramVoiceProvider;
   if (typeof provider === "function") {
-    // Wrap instead of mutating the caller's function object (prevents surprising side-effects
-    // if the same function reference is reused or monkey-patched later).
-    normalized = Object.assign(
+    // Non-mutating wrapper: preserve any methods the original function had
+    // (e.g. getVoicePolicy from real providers like pi-xai-voice) while forcing
+    // getVoicePromptContribution to undefined for pure function-form providers.
+    const wrapper = Object.assign(
       (text: string, options?: { lang?: string; rate?: string }) => provider(text, options),
+      provider,
       { getVoicePromptContribution: undefined },
     ) as TelegramVoiceProvider;
+    normalized = wrapper;
   } else {
     normalized = provider;
   }
