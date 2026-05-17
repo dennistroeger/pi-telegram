@@ -37,6 +37,7 @@ import * as Runtime from "./lib/runtime.ts";
 import * as Setup from "./lib/setup.ts";
 import * as Status from "./lib/status.ts";
 import * as TextGroups from "./lib/text-groups.ts";
+import * as TimeInjection from "./lib/time-injection.ts";
 
 type ActivePiModel = NonNullable<Pi.ExtensionContext["model"]>;
 type RuntimeTelegramQueueItem = Queue.TelegramQueueItem<Pi.ExtensionContext>;
@@ -59,6 +60,9 @@ export default function (pi: Pi.ExtensionAPI) {
     Config.createTelegramProactivePushChecker(configStore);
   const setProactivePushEnabled =
     Config.createTelegramProactivePushSetter(configStore);
+  const timeInjectionRuntime = TimeInjection.createTimeInjectionRuntime({
+    getConfig: Config.createTelegramTimeInjectionConfigGetter(configStore),
+  });
   const lockRuntime = Locks.createTelegramLockRuntime<Pi.ExtensionContext>();
   const lockOwnershipGuard =
     Locks.createTelegramLockOwnershipGuard(lockRuntime);
@@ -365,6 +369,7 @@ export default function (pi: Pi.ExtensionAPI) {
     setMyCommands,
     getCommands,
     downloadFile: downloadTelegramBridgeFile,
+    resolveTimeLine: timeInjectionRuntime.resolveLine,
     getThinkingLevel,
     setThinkingLevel,
     persistScopedModelPatterns: Pi.createScopedModelPatternPersister({

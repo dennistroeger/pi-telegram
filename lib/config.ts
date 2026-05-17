@@ -33,6 +33,20 @@ export interface TelegramOutboundHandlerConfig extends CommandTemplateObjectConf
   timeout?: number;
 }
 
+export type TelegramTimeInjectionMode = "off" | "always" | "interval";
+
+export interface TelegramTimeInjectionConfig {
+  mode?: TelegramTimeInjectionMode;
+  intervalSeconds?: number;
+  timezone?: string;
+}
+
+export interface ResolvedTelegramTimeInjectionConfig {
+  mode: TelegramTimeInjectionMode;
+  intervalSeconds: number;
+  timezone: string;
+}
+
 export interface TelegramConfig {
   botToken?: string;
   botUsername?: string;
@@ -43,6 +57,7 @@ export interface TelegramConfig {
   attachmentHandlers?: TelegramInboundHandlerConfig[];
   outboundHandlers?: TelegramOutboundHandlerConfig[];
   proactivePush?: boolean;
+  timeInjection?: TelegramTimeInjectionConfig;
 }
 
 export interface TelegramConfigStore {
@@ -139,6 +154,37 @@ export function createTelegramProactivePushSetter(
     configStore.set(config);
     await configStore.persist(config);
   };
+}
+
+function getSystemTimezone(): string {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return tz && tz.length > 0 ? tz : "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+export function resolveTelegramTimeInjectionConfig(
+  raw: TelegramTimeInjectionConfig | undefined,
+): ResolvedTelegramTimeInjectionConfig {
+  const mode: TelegramTimeInjectionMode =
+    raw?.mode === "always" || raw?.mode === "interval" ? raw.mode : "off";
+  const intervalSeconds =
+    typeof raw?.intervalSeconds === "number" && raw.intervalSeconds > 0
+      ? raw.intervalSeconds
+      : 3600;
+  const timezone =
+    typeof raw?.timezone === "string" && raw.timezone.length > 0
+      ? raw.timezone
+      : getSystemTimezone();
+  return { mode, intervalSeconds, timezone };
+}
+
+export function createTelegramTimeInjectionConfigGetter(
+  configStore: Pick<TelegramConfigStore, "get">,
+): () => ResolvedTelegramTimeInjectionConfig {
+  return () => resolveTelegramTimeInjectionConfig(configStore.get().timeInjection);
 }
 
 export function createTelegramProactivePushChatIdGetter(deps: {

@@ -110,6 +110,7 @@ export function buildTelegramTurnPrompt(options: {
   promptFiles?: DownloadedTelegramTurnFile[];
   handlerOutputs?: string[];
   historyTurns?: Pick<PendingTelegramTurn, "historyText">[];
+  timeLine?: string | null;
 }): string {
   let prompt = options.telegramPrefix;
   if ((options.historyTurns?.length ?? 0) > 0) {
@@ -125,6 +126,9 @@ export function buildTelegramTurnPrompt(options: {
       (options.historyTurns?.length ?? 0) > 0
         ? `${prompt}\n${options.rawText}`
         : appendTelegramPromptText(prompt, options.rawText);
+  }
+  if (options.timeLine) {
+    prompt = `${prompt}\n\n[time] ${options.timeLine}`;
   }
   const promptFiles = options.promptFiles ?? options.files;
   prompt = appendTelegramAttachmentSection(prompt, promptFiles);
@@ -309,6 +313,7 @@ export interface BuildTelegramPromptTurnOptions {
   files: DownloadedTelegramTurnFile[];
   promptFiles?: DownloadedTelegramTurnFile[];
   handlerOutputs?: string[];
+  timeLine?: string | null;
   readBinaryFile: (path: string) => Promise<Uint8Array>;
   inferImageMimeType: (path: string) => string | undefined;
 }
@@ -331,6 +336,7 @@ export interface TelegramPromptTurnRuntimeBuilderDeps<
     promptFiles?: DownloadedTelegramTurnFile[];
     handlerOutputs?: string[];
   }>;
+  resolveTimeLine?: (chatId: number) => string | null;
 }
 
 export function createTelegramPromptTurnRuntimeBuilder<
@@ -358,6 +364,11 @@ export function createTelegramPromptTurnRuntimeBuilder<
       processed.rawText,
       replyContext,
     );
+    const chatId = messages[0]?.chat.id;
+    const timeLine =
+      deps.resolveTimeLine && chatId !== undefined
+        ? deps.resolveTimeLine(chatId)
+        : null;
     return buildTelegramPromptTurnRuntime({
       telegramPrefix: TELEGRAM_PREFIX,
       messages,
@@ -368,6 +379,7 @@ export function createTelegramPromptTurnRuntimeBuilder<
       files,
       promptFiles: processed.promptFiles,
       handlerOutputs: processed.handlerOutputs,
+      timeLine,
       inferImageMimeType: guessMediaType,
     });
   };
@@ -390,6 +402,7 @@ export async function buildTelegramPromptTurn(
         promptFiles: options.promptFiles,
         handlerOutputs: options.handlerOutputs,
         historyTurns: options.historyTurns,
+        timeLine: options.timeLine,
       }),
     },
   ];

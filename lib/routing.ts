@@ -113,6 +113,7 @@ export interface TelegramInboundRouteRuntimeDeps<
     typeof PromptTemplates.getTelegramPromptTemplateCommands
   >[0];
   downloadFile: Media.DownloadTelegramMessageFilesDeps["downloadFile"];
+  resolveTimeLine?: (chatId: number) => string | null;
   getThinkingLevel: () => Model.ThinkingLevel;
   setThinkingLevel: (level: Model.ThinkingLevel) => void;
   persistScopedModelPatterns?: (
@@ -286,6 +287,7 @@ export function createTelegramInboundRouteRuntime<
     allocateQueueOrder: deps.bridgeRuntime.queue.allocateItemOrder,
     downloadFile: deps.downloadFile,
     processAttachments: deps.inboundHandlerRuntime.process,
+    resolveTimeLine: deps.resolveTimeLine,
   });
   const enqueueContinueTurn = async (
     message: TMessage,
