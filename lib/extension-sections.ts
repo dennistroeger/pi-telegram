@@ -6,10 +6,7 @@
 
 import type { TelegramInlineKeyboardMarkup } from "./keyboard.ts";
 
-import {
-  SECTION_REGISTRY_KEY,
-  VOICE_EVENT_RECORDER_KEY,
-} from "./globals.ts";
+const SECTION_REGISTRY_KEY = "__piTelegramSectionRegistry__";
 
 // --- Core Types ---
 
@@ -44,6 +41,7 @@ export interface TelegramSectionRegistration {
   id: TelegramSectionId;
   label: string;
   order?: number;
+  getLabel?: () => string;
   render: (
     ctx: TelegramSectionContext,
   ) => TelegramSectionView | Promise<TelegramSectionView>;
@@ -249,7 +247,7 @@ function buildTelegramSectionCallbackContext(
 export function setGlobalTelegramSectionRegistry(
   registry: TelegramSectionRegistry,
 ): void {
-  globalThis[SECTION_REGISTRY_KEY] = registry;
+  (globalThis as Record<string, unknown>)[SECTION_REGISTRY_KEY] = registry;
 }
 
 /**
@@ -259,7 +257,9 @@ export function setGlobalTelegramSectionRegistry(
 export function registerTelegramSection(
   section: TelegramSectionRegistration,
 ): () => void {
-  const registry = globalThis[SECTION_REGISTRY_KEY];
+  const registry = (globalThis as Record<string, unknown>)[
+    SECTION_REGISTRY_KEY
+  ] as TelegramSectionRegistry | undefined;
   if (!registry) {
     throw new Error(
       "Telegram section registry not available. Is pi-telegram loaded and initialized?",
@@ -274,7 +274,9 @@ export function registerTelegramSection(
  */
 /** @internal */
 export function getTelegramSectionDiagnostics(): TelegramSectionDiagnostic[] {
-  const registry = globalThis[SECTION_REGISTRY_KEY];
+  const registry = (globalThis as Record<string, unknown>)[
+    SECTION_REGISTRY_KEY
+  ] as TelegramSectionRegistry | undefined;
   return registry ? registry.getDiagnostics() : [];
 }
 
@@ -389,7 +391,7 @@ export function getTelegramSectionMainMenuRows(
   registry: TelegramSectionRegistry,
 ): TelegramSectionMainMenuRow[] {
   return registry.getSections().map((s) => ({
-    text: s.label,
+    text: s.registration.getLabel?.() ?? s.label,
     callback_data: `section:${s.token}:open`,
   }));
 }

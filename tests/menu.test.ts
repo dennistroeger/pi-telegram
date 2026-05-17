@@ -10,6 +10,8 @@ import { createTelegramQueueMenuRuntime } from "../lib/menu-queue.ts";
 import {
   buildProactivePushSettingsReplyMarkup,
   buildTelegramSettingsMenuReplyMarkup,
+  buildVoiceReplyModeSettingsReplyMarkup,
+  createTelegramSettingsMenuRuntime,
 } from "../lib/menu-settings.ts";
 import {
   applyTelegramModelPageSelection,
@@ -2076,28 +2078,92 @@ test("Menu helpers build model, thinking, and status UI payloads", () => {
 
 test("Settings menu marks binary config flags in the list", () => {
   assert.deepEqual(
-    buildTelegramSettingsMenuReplyMarkup(true).inline_keyboard[1],
+    buildTelegramSettingsMenuReplyMarkup(true, "manual").inline_keyboard[2],
     [{ text: "🟢 Proactive push", callback_data: "settings:open:proactive" }],
   );
   assert.deepEqual(
-    buildTelegramSettingsMenuReplyMarkup(false).inline_keyboard[1],
+    buildTelegramSettingsMenuReplyMarkup(false, "manual").inline_keyboard[2],
     [{ text: "⚫️ Proactive push", callback_data: "settings:open:proactive" }],
   );
+});
+
+test("Settings menu marks voice mode selection with model-style dot", () => {
+  assert.deepEqual(
+    buildVoiceReplyModeSettingsReplyMarkup("manual", false).inline_keyboard[1],
+    [{ text: "🟢 hidden", callback_data: "settings:set:voice-reply:hidden" }],
+  );
+  assert.deepEqual(
+    buildVoiceReplyModeSettingsReplyMarkup("mirror").inline_keyboard[3],
+    [{ text: "🟢 mirror", callback_data: "settings:set:voice-reply:mirror" }],
+  );
+  assert.deepEqual(
+    buildTelegramSettingsMenuReplyMarkup(false, "manual", undefined, false)
+      .inline_keyboard[1],
+    [{ text: "👄 Voice reply: hidden", callback_data: "settings:open:voice-reply" }],
+  );
+  assert.deepEqual(
+    buildTelegramSettingsMenuReplyMarkup(false, "always").inline_keyboard[1],
+    [{ text: "👄 Voice reply: always", callback_data: "settings:open:voice-reply" }],
+  );
+});
+
+test("Settings menu persists voice mode even when the menu message state expired", async () => {
+  let mode: "manual" | "mirror" | "always" | undefined = "always";
+  let configured = true;
+  const answers: string[] = [];
+  const runtime = createTelegramSettingsMenuRuntime({
+    getModelMenuState: async () => ({
+      chatId: 1,
+      messageId: 2,
+      mode: "settings" as const,
+      page: 0,
+      scope: "all" as const,
+      scopedModels: [],
+      allModels: [],
+    }),
+    getStoredModelMenuState: () => undefined,
+    storeModelMenuState: () => {},
+    editInteractiveMessage: async () => {},
+    sendInteractiveMessage: async () => 2,
+    answerCallbackQuery: async (_id, text) => {
+      answers.push(text ?? "");
+    },
+    isProactivePushEnabled: () => false,
+    getVoiceReplyMode: () => mode ?? "manual",
+    isVoiceReplyModeConfigured: () => configured,
+    setProactivePushEnabled: async () => {},
+    setVoiceReplyMode: async (nextMode) => {
+      mode = nextMode;
+      configured = nextMode !== undefined;
+    },
+  });
+
+  assert.equal(
+    await runtime.handleCallbackQuery({
+      id: "cb1",
+      data: "settings:set:voice-reply:manual",
+      message: { message_id: 99 },
+    }, {}),
+    true,
+  );
+
+  assert.equal(mode, "manual");
+  assert.deepEqual(answers, ["Voice reply mode: manual"]);
 });
 
 test("Settings menu marks one-line on/off checkbox controls symmetrically", () => {
   assert.deepEqual(
     buildProactivePushSettingsReplyMarkup(true).inline_keyboard[1],
     [
-      { text: "🟢 On", callback_data: "settings:set:proactive:on" },
-      { text: "⚫️ Off", callback_data: "settings:set:proactive:off" },
+      { text: "🟢 on", callback_data: "settings:set:proactive:on" },
+      { text: "⚫️ off", callback_data: "settings:set:proactive:off" },
     ],
   );
   assert.deepEqual(
     buildProactivePushSettingsReplyMarkup(false).inline_keyboard[1],
     [
-      { text: "⚫️ On", callback_data: "settings:set:proactive:on" },
-      { text: "🟡 Off", callback_data: "settings:set:proactive:off" },
+      { text: "⚫️ on", callback_data: "settings:set:proactive:on" },
+      { text: "🟡 off", callback_data: "settings:set:proactive:off" },
     ],
   );
 });

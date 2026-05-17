@@ -4,63 +4,60 @@
  * Owns assistant-authored outbound markup extraction, configured artifact generation, callback actions, and Telegram outbound delivery
  */
 
-// ======================================================
-// === Shared Helpers & Utilities
-// ======================================================
-
 import { randomUUID } from "node:crypto";
-import { unlink } from "node:fs/promises";
-import { basename, extname, join } from "node:path";
+import { mkdir, unlink } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, extname, join, resolve } from "node:path";
 
 import type { TelegramInlineKeyboardMarkup } from "./keyboard.ts";
 import type { PendingTelegramTurn } from "./queue.ts";
 
-import {
-  VOICE_EVENT_RECORDER_KEY,
-  OUTBOUND_HANDLER_REGISTRY_KEY,
-} from "./globals.ts";
+import { getTelegramVoiceSynthesisProviders } from "./voice.ts";
+
+const OUTBOUND_HANDLER_REGISTRY_KEY = "__piTelegramOutboundHandlers__";
+const VOICE_EVENT_RECORDER_KEY = "__piTelegramVoiceEventRecorder__";
 
 function buildVoiceReplyParameters(
   replyToPrompt: boolean | undefined,
   replyToMessageId: number | undefined,
 ): string | undefined {
-  if (replyToPrompt === false || replyToMessageId === undefined) return undefined;
+  if (replyToPrompt === false || replyToMessageId === undefined)
+    return undefined;
   return JSON.stringify({
     message_id: replyToMessageId,
     allow_sending_without_reply: true,
   });
 }
 
-async function ensureTelegramVoiceFileFormat(filePath: string): Promise<string> {
+async function ensureTelegramVoiceFileFormat(
+  filePath: string,
+): Promise<string> {
   const ext = extname(filePath).toLowerCase();
   if (ext === ".opus" || ext === ".ogg") {
     return filePath;
   }
   throw new Error(
-    `Voice provider must return .ogg or .opus files, got ${ext}. ` +
+    `Voice synthesis provider must return .ogg or .opus files, got ${ext}. ` +
       `Providers should handle format conversion internally.`,
   );
 }
 
-import { truncateTelegramQueueSummary } from "./queue.ts";
 import {
   buildCommandTemplateInvocation,
   expandCommandTemplateConfigs,
-  substituteCommandTemplateToken,
   type CommandTemplateObjectConfig,
 } from "./command-templates.ts";
+import { truncateTelegramQueueSummary } from "./queue.ts";
 
 const TELEGRAM_BUTTON_CALLBACK_PREFIX = "tgbtn";
 const TELEGRAM_BUTTON_ACTION_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_VOICE_TIMEOUT_MS = 120_000;
 
-// ======================================================
-// === Types
-// ======================================================
+// --- Types ---
 
 /**
  * Record a runtime event that appears in `/telegram-status`.
- * Voice provider extensions (e.g. `pi-xai-voice`) can call this to surface
+ * Voice synthesis provider extensions (e.g. `pi-xai-voice`) can call this to surface
  * diagnostics alongside pi-telegram's own events. Events are silently dropped
  * when pi-telegram is not loaded.
  */
@@ -69,13 +66,17 @@ export function recordTelegramRuntimeEvent(
   error: unknown,
   details?: Record<string, unknown>,
 ): void {
-  const recorder = (globalThis as Record<string, unknown>)[VOICE_EVENT_RECORDER_KEY];
+  const recorder = (globalThis as Record<string, unknown>)[
+    VOICE_EVENT_RECORDER_KEY
+  ];
   if (typeof recorder === "function") {
-    (recorder as (category: string, error: unknown, details?: Record<string, unknown>) => void)(
-      category,
-      error,
-      details,
-    );
+    (
+      recorder as (
+        category: string,
+        error: unknown,
+        details?: Record<string, unknown>,
+      ) => void
+    )(category, error, details);
   }
 }
 
@@ -147,33 +148,13 @@ export interface TelegramVoiceReplySenderDeps {
   sendRecordVoiceAction?: (chatId: number) => Promise<unknown>;
   getHandlers?: () => TelegramOutboundHandlerConfig[] | undefined;
   cwd?: string;
+  tempDir?: string;
   recordRuntimeEvent?: (
     category: string,
     error: unknown,
     details?: Record<string, unknown>,
   ) => void;
 }
-
-/**
- * What a voice provider can return for a single synthesis.
- * pi-telegram only cares about delivery; the provider (xai-voice etc.) owns
- * text optimisation, speech tags, and whether to return `transcriptText` at all
- * (based on the user's "Send Transcript" toggle).
- *
- * - If `transcriptText` is returned, it is attached as the voice message **caption**.
- * - Separate transcript messages are no longer sent (the old `sendTranscriptAsMessage`
- *   flag is deprecated and ignored for transcript).
- */
-export type TelegramVoiceReplyMode = "mirror" | "voice" | "manual";
-
-export type TelegramVoiceProviderResult =
-  | string
-  | {
-      audioPath: string;
-      transcriptText?: string;
-      sendTranscriptAsMessage?: boolean;
-    }
-  | undefined;
 
 // --- Programmatic Outbound Handler Registry ---
 
@@ -186,12 +167,12 @@ export interface TelegramOutboundHandlerRegistry {
   handlers: Map<string, TelegramOutboundProgrammaticHandler[]>;
 }
 
-// ======================================================
-// === Outbound Handler Registry (generisch)
-// ======================================================
+// --- Programmatic Outbound Handler Registry Runtime ---
 
 function getOrCreateOutboundHandlerRegistry(): TelegramOutboundHandlerRegistry {
-  const existing = (globalThis as Record<string, unknown>)[OUTBOUND_HANDLER_REGISTRY_KEY];
+  const existing = (globalThis as Record<string, unknown>)[
+    OUTBOUND_HANDLER_REGISTRY_KEY
+  ];
   if (
     existing &&
     typeof existing === "object" &&
@@ -204,7 +185,8 @@ function getOrCreateOutboundHandlerRegistry(): TelegramOutboundHandlerRegistry {
   const registry: TelegramOutboundHandlerRegistry = {
     handlers: new Map(),
   };
-  (globalThis as Record<string, unknown>)[OUTBOUND_HANDLER_REGISTRY_KEY] = registry;
+  (globalThis as Record<string, unknown>)[OUTBOUND_HANDLER_REGISTRY_KEY] =
+    registry;
   return registry;
 }
 
@@ -238,99 +220,6 @@ export function getTelegramOutboundProgrammaticHandlers(
   const registry = getOrCreateOutboundHandlerRegistry();
   return [...(registry.handlers.get(kind) ?? [])];
 }
-
-
-/**
- * View passed to a voice provider's optional prompt contribution hook.
- * Allows providers (e.g. pi-xai-voice) to supply voice-specific LLM instructions
- * for clean TTS output (e.g. "Reply ONLY with the spoken text. NO thinking...").
- * pi-telegram itself stays minimal and does not hard-code voice LLM guidance.
- */
-export interface TelegramVoiceTurnView {
-  voiceReplyPreferred?: boolean;
-  voiceReplyRequired?: boolean;
-  hasVoiceInput?: boolean;
-  /** The original text from the user (before any rewriting). */
-  userText?: string;
-}
-
-/**
- * Voice provider for TTS synthesis + optional prompt contribution.
- * The function part receives text + optional `{ lang?, rate? }`.
- * Returns a Promise resolving to either:
- *   - the file path of the generated audio file (`string`)
- *   - `{ audioPath, transcriptText? }` where `audioPath` is the file path and
- *     `transcriptText` is the clean caption shown below the voice message
- *   - `undefined` to skip voice delivery for this text
- *
- * The optional `getVoicePromptContribution` (if provided) is called by the bridge
- * when building the agent prompt for a voice-tagged turn. The provider returns
- * the exact text to append (or undefined). This is the seam that lets voice
- * providers own all voice-specific LLM guidance while the bridge only offers
- * the registration and delivery interfaces.
- */
-export interface TelegramVoiceProvider {
-  (
-    text: string,
-    options?: { lang?: string; rate?: string },
-  ): Promise<TelegramVoiceProviderResult>;
-
-  /**
-   * Optional hook that allows the voice provider to supply the current voice policy
-   * (e.g. replyMode). The bridge will call this when it needs to know the active policy
-   * for a voice-tagged turn.
-   *
-   * This replaces the previous global fallback mechanism.
-   */
-  getVoicePolicy?: () => { replyMode?: TelegramVoiceReplyMode };
-
-  getVoicePromptContribution?: (view: TelegramVoiceTurnView) => string | undefined;
-}
-
-/**
- * Register a voice provider for outbound voice reply delivery.
- *
- * Voice provider extensions call this to register a TTS backend.
- * The bridge detects the presence of a registered provider at delivery time
- * and routes voice replies through it.
- *
- * The provider may be a function (backward-compatible) or an object implementing
- * `TelegramVoiceProvider` (with optional `getVoicePromptContribution` for
- * provider-owned LLM guidance on voice turns).
- *
- * @example
- * ```typescript
- * import { registerTelegramVoiceProvider } from "@llblab/pi-telegram";
- *
- * const dispose = registerTelegramVoiceProvider(myVoiceProvider, {
- *   id: "xai",
- * });
- * ```
- *
- * @param provider - Function or object. Function receives text + optional
- *   `{ lang?, rate? }` and returns the audio path / object / undefined.
- *   Object form may also provide:
- *   - `getVoicePolicy()` → returns current voice policy (e.g. replyMode). The bridge
- *     will call this when it needs to determine the active voice reply policy.
- *   - `getVoicePromptContribution(view)` → supplies voice-specific LLM instructions
- *     that the bridge injects into the prompt for voice-tagged turns.
- * @param options.id - Stable identifier for the provider.
- * @returns Disposer function that unregisters the provider.
- */
-// ======================================================
-// === Voice Provider Registry
-// ======================================================
-
-/**
- * Voice providers are registered separately from normal outbound handlers.
- *
- * Reason: Voice providers can implement additional methods:
- *   - getVoicePolicy() → returns current reply mode (mirror/voice/manual)
- *   - getVoicePromptContribution(view) → LLM instructions for voice turns
- *
- * The bridge calls these methods to tag turns and inject voice-specific guidance.
- * Delivery (sending the actual audio) is handled in the Voice Delivery section below.
- */
 
 export interface TelegramOutboundTextReplyRuntimeDeps<TReplyMarkup = unknown> {
   execCommand: TelegramVoiceReplySenderDeps["execCommand"];
@@ -368,7 +257,9 @@ export interface TelegramOutboundTextTransformResult<TReplyMarkup = unknown> {
   replyMarkup?: TReplyMarkup;
 }
 
-export interface TelegramOutboundTextPreviewRuntimeDeps<TReplyMarkup = unknown> {
+export interface TelegramOutboundTextPreviewRuntimeDeps<
+  TReplyMarkup = unknown,
+> {
   execCommand: TelegramVoiceReplySenderDeps["execCommand"];
   getHandlers?: () => TelegramOutboundHandlerConfig[] | undefined;
   finalizeMarkdownPreview: (
@@ -512,47 +403,12 @@ function collectTopLevelHtmlComments(markdown: string): {
   return { comments };
 }
 
+// --- Voice Delivery Helpers ---
 
-
-
-
-
-/**
- * Parse a Markdown reply for `telegram_voice` blocks and build a voice reply plan.
- * Returns the stripped Markdown, extracted voice text, and any per-block
- * `lang` / `rate` overrides found in the markup.
- */
-// ======================================================
-// === Voice Delivery
-// ======================================================
-
-/**
- * Voice Delivery
- *
- * This section contains everything needed to actually deliver voice messages
- * (calling providers, sending via Telegram, handling transcripts, etc.).
- *
- * Important separation:
- * - All policy, tagging, and voice-specific decision logic lives in `lib/voice.ts`.
- * - This module only executes the delivery based on what voice.ts has decided.
- */
-
-
-/**
- * Voice Delivery
- *
- * This section is responsible for the actual sending of voice messages
- * through registered providers. It handles:
- *   - Calling voice providers (TTS)
- *   - Ensuring OGG/Opus format
- *   - Sending the voice message via Telegram
- *   - Handling transcript (as caption or separate message)
- *
- * Note: The decision *whether* something should be voice (policy, tagging)
- * lives in `lib/voice.ts`. This module only executes the delivery.
- */
-
-function extractVoiceResult(result: any): { filePath: string; transcriptText?: string } {
+function extractVoiceResult(result: any): {
+  filePath: string;
+  transcriptText?: string;
+} {
   if (typeof result === "string") {
     return { filePath: result };
   }
@@ -562,14 +418,16 @@ function extractVoiceResult(result: any): { filePath: string; transcriptText?: s
   };
 }
 
-async function sendVoiceChatAction(deps: TelegramVoiceReplySenderDeps, chatId: number) {
+async function sendVoiceChatAction(
+  deps: TelegramVoiceReplySenderDeps,
+  chatId: number,
+) {
   if (deps.sendRecordVoiceAction) {
     await deps.sendRecordVoiceAction(chatId).catch(() => {});
   } else {
     await deps.sendChatAction?.(chatId, "record_voice").catch(() => {});
   }
 }
-
 
 // --- Voice Reply Timeout Helpers ---
 
@@ -713,6 +571,137 @@ function getTelegramVoiceHandlerCompositionSteps(
   return [];
 }
 
+function extractVoiceReplyPath(stdout: string): string {
+  const path = stdout.trim().split(/\r?\n/).filter(Boolean).at(-1);
+  if (!path) throw new Error("Voice generator did not print an output path");
+  return path;
+}
+
+function getVoiceReplyOutputPath(
+  config: TelegramOutboundHandlerConfig,
+  values: Record<string, string>,
+  stdout: string,
+): string {
+  const output = config.output ?? "stdout";
+  if (output === "stdout") return extractVoiceReplyPath(stdout);
+  const keyMatch = output.match(/^\{?([A-Za-z_][A-Za-z0-9_-]*)\}?$/);
+  if (keyMatch && Object.hasOwn(values, keyMatch[1])) {
+    return values[keyMatch[1]] ?? "";
+  }
+  return output.replace(
+    /\{([A-Za-z_][A-Za-z0-9_-]*)\}/g,
+    (_match, key: string) => values[key] ?? "",
+  );
+}
+
+function getVoiceReplyTemplateValues(
+  text: string,
+  options: { lang?: string; rate?: string; mp3Path: string; oggPath: string },
+): Record<string, string> {
+  return {
+    text,
+    type: "voice",
+    mp3: options.mp3Path,
+    ogg: options.oggPath,
+    ...(options.lang ? { lang: options.lang } : {}),
+    ...(options.rate ? { rate: options.rate } : {}),
+  };
+}
+
+function getDefaultTelegramVoiceTempDir(): string {
+  const agentDir = process.env.PI_CODING_AGENT_DIR
+    ? resolve(process.env.PI_CODING_AGENT_DIR)
+    : join(homedir(), ".pi", "agent");
+  return join(agentDir, "tmp", "telegram");
+}
+
+async function generateTelegramVoiceReplyFileWithHandler(
+  text: string,
+  options: {
+    lang?: string;
+    rate?: string;
+    handler: TelegramOutboundHandlerConfig;
+    tempDir: string;
+    cwd: string;
+    timeout: number;
+    execCommand: TelegramVoiceReplySenderDeps["execCommand"];
+  },
+): Promise<string> {
+  await mkdir(options.tempDir, { recursive: true });
+  const artifactId = randomUUID();
+  const values = getVoiceReplyTemplateValues(text, {
+    lang: options.lang,
+    rate: options.rate,
+    mp3Path: join(options.tempDir, `${artifactId}-voice.mp3`),
+    oggPath: join(options.tempDir, `${artifactId}-voice.ogg`),
+  });
+  const steps = getTelegramVoiceHandlerCompositionSteps(options.handler);
+  if (steps.length > 0) {
+    const startedAt = Date.now();
+    let stdout = text;
+    for (const [index, step] of steps.entries()) {
+      try {
+        const result = await runVoiceReplyCommand(
+          `Outbound voice template step ${index + 1}`,
+          step,
+          values,
+          {
+            cwd: options.cwd,
+            timeout: getVoiceReplyCompositionStepTimeout(
+              options.timeout,
+              step,
+              startedAt,
+            ),
+            execCommand: options.execCommand,
+            stdin: stdout,
+          },
+        );
+        stdout = result.stdout;
+      } catch (error) {
+        if (typeof step === "object" && step.critical) throw error;
+        stdout = "";
+      }
+    }
+    return getVoiceReplyOutputPath(options.handler, values, stdout);
+  }
+  const result = await runVoiceReplyCommand(
+    "Outbound voice template",
+    options.handler,
+    values,
+    {
+      cwd: options.cwd,
+      timeout: options.timeout,
+      execCommand: options.execCommand,
+      stdin: text,
+    },
+  );
+  return getVoiceReplyOutputPath(options.handler, values, result.stdout);
+}
+
+export async function generateTelegramVoiceReplyFile(
+  text: string,
+  options: {
+    lang?: string;
+    rate?: string;
+    handler?: TelegramOutboundHandlerConfig;
+    tempDir?: string;
+    cwd?: string;
+    execCommand: TelegramVoiceReplySenderDeps["execCommand"];
+  },
+): Promise<string | undefined> {
+  const handler = options.handler;
+  if (!handler?.template && !handler?.pipe?.length) return undefined;
+  return generateTelegramVoiceReplyFileWithHandler(text, {
+    lang: options.lang,
+    rate: options.rate,
+    handler,
+    tempDir: options.tempDir ?? getDefaultTelegramVoiceTempDir(),
+    cwd: options.cwd ?? process.cwd(),
+    timeout: getVoiceReplyTimeout(handler),
+    execCommand: options.execCommand,
+  });
+}
+
 function getOutboundTextTemplateValues(text: string): Record<string, string> {
   return { text, type: "text" };
 }
@@ -780,7 +769,10 @@ export async function transformTelegramOutboundText(
   },
 ): Promise<string> {
   let transformed = text;
-  for (const handler of findTelegramOutboundHandlers(options.handlers, "text")) {
+  for (const handler of findTelegramOutboundHandlers(
+    options.handlers,
+    "text",
+  )) {
     try {
       transformed = await transformTelegramOutboundTextWithHandler(
         transformed,
@@ -792,7 +784,9 @@ export async function transformTelegramOutboundText(
       );
     } catch (error) {
       options.recordRuntimeEvent?.("outbound-text-handler", error, {
-        handler: outboundHandlerMatchesType(handler, "text") ? "text" : "unknown",
+        handler: outboundHandlerMatchesType(handler, "text")
+          ? "text"
+          : "unknown",
       });
     }
   }
@@ -803,7 +797,8 @@ function isTelegramInlineKeyboardLike(
   replyMarkup: unknown,
 ): replyMarkup is TelegramInlineKeyboardLike {
   if (!replyMarkup || typeof replyMarkup !== "object") return false;
-  const keyboard = (replyMarkup as { inline_keyboard?: unknown }).inline_keyboard;
+  const keyboard = (replyMarkup as { inline_keyboard?: unknown })
+    .inline_keyboard;
   return Array.isArray(keyboard);
 }
 
@@ -824,7 +819,9 @@ async function transformTelegramOutboundReplyMarkup<TReplyMarkup>(
   return { ...replyMarkup, inline_keyboard: translatedRows } as TReplyMarkup;
 }
 
-export async function transformTelegramOutboundTextReply<TReplyMarkup = unknown>(
+export async function transformTelegramOutboundTextReply<
+  TReplyMarkup = unknown,
+>(
   text: string,
   options: TelegramOutboundTextTransformOptions<TReplyMarkup>,
 ): Promise<TelegramOutboundTextTransformResult<TReplyMarkup>> {
@@ -869,24 +866,36 @@ export function createTelegramOutboundTextReplyRuntime<TReplyMarkup = unknown>(
         recordRuntimeEvent: deps.recordRuntimeEvent,
         replyMarkup: options?.replyMarkup,
       });
-      return deps.sendMarkdownReply(chatId, replyToMessageId, transformed.text, {
-        ...options,
-        ...(transformed.replyMarkup
-          ? { replyMarkup: transformed.replyMarkup }
-          : {}),
-      });
+      return deps.sendMarkdownReply(
+        chatId,
+        replyToMessageId,
+        transformed.text,
+        {
+          ...options,
+          ...(transformed.replyMarkup
+            ? { replyMarkup: transformed.replyMarkup }
+            : {}),
+        },
+      );
     },
   };
 }
 
-export function createTelegramOutboundTextPreviewRuntime<TReplyMarkup = unknown>(
+export function createTelegramOutboundTextPreviewRuntime<
+  TReplyMarkup = unknown,
+>(
   deps: TelegramOutboundTextPreviewRuntimeDeps<TReplyMarkup>,
 ): Pick<
   TelegramOutboundTextPreviewRuntimeDeps<TReplyMarkup>,
   "finalizeMarkdownPreview"
 > {
   return {
-    finalizeMarkdownPreview: async (chatId, markdown, replyToMessageId, options) => {
+    finalizeMarkdownPreview: async (
+      chatId,
+      markdown,
+      replyToMessageId,
+      options,
+    ) => {
       const transformed = await transformTelegramOutboundTextReply(markdown, {
         handlers: deps.getHandlers?.(),
         cwd: deps.cwd,
@@ -918,87 +927,34 @@ export interface TelegramOutboundReplyPlan<TReplyMarkup = unknown> {
   rate?: string;
 }
 
-// Re-export the new Voice policy/tagging layer from the dedicated voice.ts module
-// (Voice v2 domain split). The Voice registry, parsing, and delivery
-// stay in this file (original Voice Support location) and are imported by
-// voice.ts for the policy resolution that needs to ask providers for their policy.
-//
-// NOTE: This creates a deliberate import cycle (voice.ts ↔ outbound-handlers.ts).
-// It is accepted because it keeps the voice domain cohesive while the heavy
-// Telegram-specific parser + delivery logic lives in outbound-handlers.
-// See tests/invariants.test.ts (the "Voice domain stays free of local domain imports" check
-// explicitly allows this one cycle).
+// --- Voice Policy Re-Exports ---
 export {
-  getTelegramVoiceReplyMode,
-  computeVoiceTurnFlags,
-  isVoiceTurn,
-  shouldSuppressPreviewForVoice,
+  clearTelegramVoiceSynthesisProviders,
+  clearTelegramVoiceTranscriptionProviders,
   computeVoicePromptContribution,
+  computeVoiceTurnFlags,
+  getTelegramVoiceSynthesisProviders,
+  getTelegramVoiceReplyMode,
+  getTelegramVoiceTranscriptionProviders,
+  hasTelegramVoiceSynthesisProvider,
+  hasTelegramVoiceTranscriptionProvider,
+  isVoiceTurn,
+  registerTelegramVoiceSynthesisProvider,
+  registerTelegramVoiceTranscriptionProvider,
+  shouldSuppressPreviewForVoice,
+  type TelegramVoiceSynthesisProvider,
+  type TelegramVoiceSynthesisProviderResult,
+  type TelegramVoiceReplyMode,
+  type TelegramVoiceTranscriptionFile,
+  type TelegramVoiceTranscriptionProvider,
+  type TelegramVoiceTranscriptionProviderResult,
+  type TelegramVoiceTurnView,
 } from "./voice.ts";
 
-import { VOICE_PROVIDER_REGISTRY_KEY } from "./globals.ts";
-
-
-// ======================================================
-// === Voice Provider Registry (restored to outbound-handlers.ts for load + original location)
-// ======================================================
-
-function getOrCreateVoiceProviderRegistry(): Map<string, TelegramVoiceProvider> {
-  const existing = (globalThis as Record<string, unknown>)[VOICE_PROVIDER_REGISTRY_KEY];
-  if (existing instanceof Map) {
-    return existing as Map<string, TelegramVoiceProvider>;
-  }
-  const registry = new Map<string, TelegramVoiceProvider>();
-  (globalThis as Record<string, unknown>)[VOICE_PROVIDER_REGISTRY_KEY] = registry;
-  return registry;
-}
-
-export function registerTelegramVoiceProvider(
-  provider: TelegramVoiceProvider | ((text: string, options?: { lang?: string; rate?: string }) => Promise<string | { audioPath: string; transcriptText?: string } | undefined>),
-  options?: { id?: string },
-): () => void {
-  const registry = getOrCreateVoiceProviderRegistry();
-  const id = options?.id ?? `voice-provider-${registry.size}`;
-  let normalized: TelegramVoiceProvider;
-  if (typeof provider === "function") {
-    // Non-mutating wrapper for function-form providers.
-    // Explicitly forward the known hooks so we don't rely on Object.assign
-    // copying prototype or non-enumerable properties.
-    const wrapper = Object.assign(
-      (text: string, options?: { lang?: string; rate?: string }) => provider(text, options),
-      {
-        getVoicePolicy: (provider as any).getVoicePolicy,
-        getVoicePromptContribution: undefined,
-      },
-    ) as TelegramVoiceProvider;
-    normalized = wrapper;
-  } else {
-    normalized = provider;
-  }
-  registry.set(id, normalized);
-  return () => {
-    registry.delete(id);
-  };
-}
-
-export function getTelegramVoiceProviders(): TelegramVoiceProvider[] {
-  return Array.from(getOrCreateVoiceProviderRegistry().values());
-}
-
-export function hasTelegramVoiceProvider(): boolean {
-  return getOrCreateVoiceProviderRegistry().size > 0;
-}
-
-export function clearTelegramVoiceProviders(): void {
-  getOrCreateVoiceProviderRegistry().clear();
-}
-
-// ======================================================
-// === Voice Delivery
-// ======================================================
+// --- Voice Delivery ---
 
 /**
- * Creates a function that sends voice replies using registered voice providers.
+ * Creates a function that sends voice replies using registered voice synthesis providers.
  *
  * This is the main entry point for delivering voice messages.
  * The actual decision logic (when to use voice) lives in `lib/voice.ts`.
@@ -1006,22 +962,108 @@ export function clearTelegramVoiceProviders(): void {
 export function createTelegramVoiceReplySender(
   deps: TelegramVoiceReplySenderDeps,
 ) {
+  async function uploadVoiceFile(
+    turn: TelegramVoiceReplyTurnView,
+    filePath: string,
+    options?: {
+      replyToPrompt?: boolean;
+      replyMarkup?: unknown;
+      transcriptText?: string;
+    },
+  ): Promise<void> {
+    const voiceFilePath = await ensureTelegramVoiceFileFormat(filePath);
+    await sendVoiceChatAction(deps, turn.chatId);
+    const replyParameters = buildVoiceReplyParameters(
+      options?.replyToPrompt,
+      turn.replyToMessageId,
+    );
+    await deps.sendMultipart(
+      "sendVoice",
+      {
+        chat_id: String(turn.chatId),
+        ...(options?.transcriptText ? { caption: options.transcriptText } : {}),
+        ...(replyParameters ? { reply_parameters: replyParameters } : {}),
+        ...(options?.replyMarkup !== undefined && options.replyMarkup !== null
+          ? {
+              reply_markup:
+                typeof options.replyMarkup === "string"
+                  ? options.replyMarkup
+                  : JSON.stringify(options.replyMarkup),
+            }
+          : {}),
+      },
+      "voice",
+      voiceFilePath,
+      basename(voiceFilePath),
+    );
+  }
+
   return async function sendVoiceReply(
     turn: TelegramVoiceReplyTurnView,
     text: string,
-    options?: { lang?: string; rate?: string; replyToPrompt?: boolean; replyMarkup?: unknown },
+    options?: {
+      lang?: string;
+      rate?: string;
+      replyToPrompt?: boolean;
+      replyMarkup?: unknown;
+    },
   ): Promise<void> {
-    const providers = getTelegramVoiceProviders();
+    for (const handler of findTelegramOutboundHandlers(
+      deps.getHandlers?.(),
+      "voice",
+    )) {
+      try {
+        const filePath = await generateTelegramVoiceReplyFile(text, {
+          lang: options?.lang,
+          rate: options?.rate,
+          handler,
+          tempDir: deps.tempDir,
+          cwd: deps.cwd,
+          execCommand: deps.execCommand,
+        });
+        if (!filePath) continue;
+        await uploadVoiceFile(turn, filePath, {
+          replyToPrompt: options?.replyToPrompt,
+          replyMarkup: options?.replyMarkup,
+        });
+        return;
+      } catch (error) {
+        deps.recordRuntimeEvent?.("voice", error, { phase: "template-handler-send" });
+      }
+    }
 
-    for (const [index, provider] of providers.entries()) {
+    for (const handler of getTelegramOutboundProgrammaticHandlers("voice")) {
+      try {
+        const filePath = await handler(text, {
+          lang: options?.lang,
+          rate: options?.rate,
+        });
+        if (!filePath) continue;
+        await uploadVoiceFile(turn, filePath, {
+          replyToPrompt: options?.replyToPrompt,
+          replyMarkup: options?.replyMarkup,
+        });
+        return;
+      } catch (error) {
+        deps.recordRuntimeEvent?.("voice", error, { phase: "programmatic-handler-send" });
+      }
+    }
+
+    const providers = getTelegramVoiceSynthesisProviders();
+
+    for (const provider of providers) {
       let voiceFilePath: string | undefined;
       let originalFilePath: string | undefined;
 
       try {
         if (typeof provider !== "function") {
-          deps.recordRuntimeEvent?.("voice", new Error("Registered voice provider is not callable (policy-only object?)"), {
-            phase: "voice-provider-skip",
-          });
+          deps.recordRuntimeEvent?.(
+            "voice",
+            new Error(
+              "Registered voice synthesis provider is not callable (policy-only object?)",
+            ),
+            { phase: "voice-provider-skip" },
+          );
           continue;
         }
 
@@ -1031,50 +1073,22 @@ export function createTelegramVoiceReplySender(
         });
 
         if (!providerResult) {
-          deps.recordRuntimeEvent?.("voice", new Error("Voice provider returned empty path"), {
-            phase: "voice-provider-skip",
-          });
+          deps.recordRuntimeEvent?.(
+            "voice",
+            new Error("Voice synthesis provider returned empty path"),
+            { phase: "voice-provider-skip" },
+          );
           continue;
         }
 
         const { filePath, transcriptText } = extractVoiceResult(providerResult);
-        voiceFilePath = await ensureTelegramVoiceFileFormat(filePath);
+        voiceFilePath = filePath;
         originalFilePath = filePath;
-
-        // Show "recording voice" action
-        await sendVoiceChatAction(deps, turn.chatId);
-
-        const replyParameters = buildVoiceReplyParameters(
-          options?.replyToPrompt,
-          turn.replyToMessageId,
-        );
-
-        await deps.sendMultipart(
-          "sendVoice",
-          {
-            chat_id: String(turn.chatId),
-            ...(transcriptText ? { caption: transcriptText } : {}),
-            ...(replyParameters ? { reply_parameters: replyParameters } : {}),
-            ...(options?.replyMarkup !== undefined && options?.replyMarkup !== null
-              ? {
-                  reply_markup:
-                    typeof options.replyMarkup === "string"
-                      ? options.replyMarkup
-                      : JSON.stringify(options.replyMarkup),
-                }
-              : {}),
-          },
-          "voice",
-          voiceFilePath,
-          basename(voiceFilePath),
-        );
-
-        // Transcript is attached as caption when the provider returns transcriptText
-        // (controlled by the "Send Transcript" toggle in the Voice extension).
-        // We no longer support sending transcript as a separate message (user feedback:
-        // separate message approach is unwanted; caption-only is the desired "on" behavior,
-        // and off means provider should not return transcriptText at all).
-
+        await uploadVoiceFile(turn, filePath, {
+          replyToPrompt: options?.replyToPrompt,
+          replyMarkup: options?.replyMarkup,
+          transcriptText,
+        });
         return;
       } catch (error) {
         deps.recordRuntimeEvent?.("voice", error, { phase: "send" });
@@ -1085,8 +1099,11 @@ export function createTelegramVoiceReplySender(
       }
     }
 
-    const errorMessage = "Failed to send voice reply: every voice provider failed.";
-    deps.recordRuntimeEvent?.("voice", new Error(errorMessage), { phase: "send" });
+    const errorMessage =
+      "Failed to send voice reply: every voice synthesis provider and outbound voice handler failed.";
+    deps.recordRuntimeEvent?.("voice", new Error(errorMessage), {
+      phase: "send",
+    });
     throw new Error(errorMessage);
   };
 }
@@ -1162,7 +1179,9 @@ export function replaceTopLevelHtmlComments(
   return result + markdown.slice(offset);
 }
 
-export function findTopLevelOpenOrPartialHtmlCommentIndex(markdown: string): number {
+export function findTopLevelOpenOrPartialHtmlCommentIndex(
+  markdown: string,
+): number {
   const { openCommentStart } = collectTopLevelHtmlComments(markdown);
   if (openCommentStart !== undefined) return openCommentStart;
   let offset = 0;
@@ -1211,15 +1230,14 @@ export function parseTopLevelTelegramComment(
   };
 }
 
-// ======================================================
-// === Voice-specific Comment Parsing Helpers
-// (only for telegram_voice — live in voice.ts, but the generic base is above)
-// ======================================================
+// --- Voice Comment Parsing Helpers ---
 
 /**
  * Extracts label and prompt from a telegram_button comment string.
  */
-export function parseTelegramCommentAttributes(input: string): Record<string, string> {
+export function parseTelegramCommentAttributes(
+  input: string,
+): Record<string, string> {
   const attributes: Record<string, string> = {};
   for (const match of input.matchAll(
     /([A-Za-z_][A-Za-z0-9_-]*)=(?:"([^"]*)"|'([^']*)'|(\S+))/g,
@@ -1269,15 +1287,14 @@ function parseButtonsCommentRows(
   return [[{ text: label, prompt }]];
 }
 
-
-// ======================================================
-// === Button & Action Handling
-// ======================================================
+// --- Voice Reply Planning ---
 
 // The generic comment parsing helpers (replaceTopLevelHtmlComments, etc.)
 // live locally in this file (used by both Voice and Button parsing).
 
-export function normalizeMarkdownAfterVoiceExtraction(markdown: string): string {
+export function normalizeMarkdownAfterVoiceExtraction(
+  markdown: string,
+): string {
   return markdown.replace(/\n{3,}/g, "\n\n").trim();
 }
 
@@ -1309,7 +1326,7 @@ function parseVoiceCommentBody(
   // This handles both simple ": text" and "attributes: text" forms.
   let colonIndex = -1;
   let inQuote = false;
-  let quoteChar = '';
+  let quoteChar = "";
   for (let i = 0; i < trimmedHead.length; i++) {
     const char = trimmedHead[i];
     if (inQuote) {
@@ -1318,7 +1335,7 @@ function parseVoiceCommentBody(
       if (char === '"' || char === "'") {
         inQuote = true;
         quoteChar = char;
-      } else if (char === ':') {
+      } else if (char === ":") {
         colonIndex = i;
         break;
       }
@@ -1328,7 +1345,7 @@ function parseVoiceCommentBody(
     const attrsPart = trimmedHead.slice(0, colonIndex).trim();
     const textPart = trimmedHead.slice(colonIndex + 1).trim();
     const attrs = parseVoiceReplyAttributes(attrsPart);
-    return { attrs: attrsPart, text: textPart || attrs.text || '', ...attrs };
+    return { attrs: attrsPart, text: textPart || attrs.text || "", ...attrs };
   }
   if (trimmedHead.startsWith(":")) {
     return { attrs: "", text: trimmedHead.slice(1).trim() };
@@ -1348,7 +1365,9 @@ export function stripTelegramCommentMarkupForPreview(markdown: string): string {
   return normalizeMarkdownAfterVoiceExtraction(previewMarkdown);
 }
 
-export function stripTelegramCommentMarkupForDelivery(markdown: string): string {
+export function stripTelegramCommentMarkupForDelivery(
+  markdown: string,
+): string {
   const withoutClosedBlocks = replaceTopLevelHtmlComments(markdown, () => "");
   const openBlockIndex =
     findTopLevelOpenOrPartialHtmlCommentIndex(withoutClosedBlocks);
@@ -1413,9 +1432,7 @@ export function planTelegramVoiceReply(
   };
 }
 
-// ======================================================
-// === Button & Action Handling
-// ======================================================
+// --- Button And Action Handling ---
 
 /**
  * Handles assistant-authored buttons (<!-- telegram_button -->) and their callbacks.
@@ -1540,17 +1557,8 @@ export function createTelegramOutboundReplyPlanner(
  * a Telegram voice message via the voice reply sender. Throws if no voice
  * reply could be delivered.
  */
-// ======================================================
-// === Outbound Reply Artifacts
-// ======================================================
 
-/**
- * Creates a sender that can deliver planned replies which may contain
- * voice, text, and attachments (artifacts). Used after agent responses.
- *
- * This is the main integration point where button replies and voice replies
- * are combined and sent out.
- */
+// --- Outbound Reply Artifacts ---
 
 export function createTelegramOutboundReplyArtifactSender(
   deps: TelegramVoiceReplySenderDeps,
@@ -1589,7 +1597,9 @@ export function createTelegramOutboundReplyArtifactSender(
     }
 
     if (!anyDelivered) {
-      throw new Error("Failed to send voice reply: every voice provider failed.");
+      throw new Error(
+        "Failed to send voice reply: every voice synthesis provider failed.",
+      );
     }
   };
 }

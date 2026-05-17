@@ -11,15 +11,21 @@ import {
 import type { TelegramInlineKeyboardMarkup } from "./keyboard.ts";
 import type { TelegramModelMenuState } from "./menu-model.ts";
 import type { MenuModel } from "./model.ts";
+import type { TelegramVoiceReplyMode } from "./voice.ts";
 
 export type TelegramSettingsMenuReplyMarkup = TelegramInlineKeyboardMarkup;
 
 export interface TelegramSettingsStateDeps {
   isProactivePushEnabled: () => boolean;
+  getVoiceReplyMode: () => TelegramVoiceReplyMode;
+  isVoiceReplyModeConfigured: () => boolean;
 }
 
 export interface TelegramSettingsMutationDeps extends TelegramSettingsStateDeps {
   setProactivePushEnabled: (enabled: boolean) => Promise<void>;
+  setVoiceReplyMode: (
+    mode: TelegramVoiceReplyMode | undefined,
+  ) => Promise<void>;
 }
 
 export interface TelegramSettingsMenuOpenDeps<
@@ -106,6 +112,20 @@ export interface TelegramSettingsMenuRuntimeDeps<
 
 export const SETTINGS_MENU_TITLE = "<b>⚙️ Settings:</b>";
 export const PROACTIVE_PUSH_SETTINGS_TITLE = "<b>Proactive push:</b>";
+export const VOICE_REPLY_MODE_SETTINGS_TITLE = "<b>Voice reply mode:</b>";
+
+type TelegramVoiceReplyModeSetting = TelegramVoiceReplyMode | "hidden";
+
+function getVoiceReplyModeLabel(mode: TelegramVoiceReplyModeSetting): string {
+  return mode;
+}
+
+function getVoiceReplyModeSetting(
+  mode: TelegramVoiceReplyMode,
+  configured: boolean,
+): TelegramVoiceReplyModeSetting {
+  return configured ? mode : "hidden";
+}
 
 export function buildTelegramSettingsMenuText(): string {
   return SETTINGS_MENU_TITLE;
@@ -119,9 +139,24 @@ export function buildProactivePushSettingsText(): string {
   ].join("\n");
 }
 
+export function buildVoiceReplyModeSettingsText(): string {
+  return [
+    VOICE_REPLY_MODE_SETTINGS_TITLE,
+    "",
+    "Controls when pi-telegram converts assistant text replies into Telegram voice messages.",
+    "",
+    "<code>-</code> <code>hidden</code> (default): same behavior as 'manual', but no voice policy is added to prompt context.",
+    "<code>-</code> <code>manual</code>: agent decides; explicit 'telegram_voice' markup still works and reply mode is visible in prompt context.",
+    "<code>-</code> <code>mirror</code>: voice input prefers a voice reply; text input gracefully follows 'manual' behavior.",
+    "<code>-</code> <code>always</code>: every reply is converted to voice when delivery succeeds.",
+  ].join("\n");
+}
+
 export function buildTelegramSettingsMenuReplyMarkup(
   proactivePushEnabled: boolean,
+  voiceReplyMode: TelegramVoiceReplyMode,
   sectionRegistry?: TelegramSectionRegistry,
+  voiceReplyModeConfigured = true,
 ): TelegramSettingsMenuReplyMarkup {
   const rows: Array<Array<{ text: string; callback_data: string }>> = [
     [{ text: "⬆️ Main menu", callback_data: "menu:back" }],
@@ -133,12 +168,22 @@ export function buildTelegramSettingsMenuReplyMarkup(
       rows.push([{ text: row.label, callback_data: row.callback_data }]);
     }
   }
-  rows.push([
-    {
-      text: `${proactivePushEnabled ? "🟢" : "⚫️"} Proactive push`,
-      callback_data: "settings:open:proactive",
-    },
-  ]);
+  rows.push(
+    [
+      {
+        text: `👄 Voice reply: ${getVoiceReplyModeLabel(
+          getVoiceReplyModeSetting(voiceReplyMode, voiceReplyModeConfigured),
+        )}`,
+        callback_data: "settings:open:voice-reply",
+      },
+    ],
+    [
+      {
+        text: `${proactivePushEnabled ? "🟢" : "⚫️"} Proactive push`,
+        callback_data: "settings:open:proactive",
+      },
+    ],
+  );
   return { inline_keyboard: rows };
 }
 
@@ -154,7 +199,9 @@ export async function openTelegramSettingsMenu<
     buildTelegramSettingsMenuText(),
     buildTelegramSettingsMenuReplyMarkup(
       deps.isProactivePushEnabled(),
+      deps.getVoiceReplyMode(),
       sectionRegistry,
+      deps.isVoiceReplyModeConfigured(),
     ),
   );
   if (messageId === undefined) return;
@@ -171,14 +218,38 @@ export function buildProactivePushSettingsReplyMarkup(
       [{ text: "⬆️ Back", callback_data: "settings:list" }],
       [
         {
-          text: proactivePushEnabled ? "🟢 On" : "⚫️ On",
+          text: proactivePushEnabled ? "🟢 on" : "⚫️ on",
           callback_data: "settings:set:proactive:on",
         },
         {
-          text: proactivePushEnabled ? "⚫️ Off" : "🟡 Off",
+          text: proactivePushEnabled ? "⚫️ off" : "🟡 off",
           callback_data: "settings:set:proactive:off",
         },
       ],
+    ],
+  };
+}
+
+export function buildVoiceReplyModeSettingsReplyMarkup(
+  mode: TelegramVoiceReplyMode,
+  configured = true,
+): TelegramSettingsMenuReplyMarkup {
+  const activeMode = getVoiceReplyModeSetting(mode, configured);
+  const modes: TelegramVoiceReplyModeSetting[] = [
+    "hidden",
+    "manual",
+    "mirror",
+    "always",
+  ];
+  return {
+    inline_keyboard: [
+      [{ text: "⬆️ Back", callback_data: "settings:list" }],
+      ...modes.map((value) => [
+        {
+          text: `${value === activeMode ? "🟢 " : ""}${getVoiceReplyModeLabel(value)}`,
+          callback_data: `settings:set:voice-reply:${value}`,
+        },
+      ]),
     ],
   };
 }
@@ -191,7 +262,9 @@ export async function updateTelegramSettingsMenuMessage(
     buildTelegramSettingsMenuText(),
     buildTelegramSettingsMenuReplyMarkup(
       deps.isProactivePushEnabled(),
+      deps.getVoiceReplyMode(),
       sectionRegistry,
+      deps.isVoiceReplyModeConfigured(),
     ),
   );
 }
@@ -202,6 +275,18 @@ export async function updateProactivePushSettingsMessage(
   await deps.updateSettingsMessage(
     buildProactivePushSettingsText(),
     buildProactivePushSettingsReplyMarkup(deps.isProactivePushEnabled()),
+  );
+}
+
+export async function updateVoiceReplyModeSettingsMessage(
+  deps: TelegramSettingsMenuCallbackDeps,
+): Promise<void> {
+  await deps.updateSettingsMessage(
+    buildVoiceReplyModeSettingsText(),
+    buildVoiceReplyModeSettingsReplyMarkup(
+      deps.getVoiceReplyMode(),
+      deps.isVoiceReplyModeConfigured(),
+    ),
   );
 }
 
@@ -220,6 +305,28 @@ export async function handleTelegramSettingsMenuCallbackAction(
     await updateProactivePushSettingsMessage(deps);
     await deps.answerCallbackQuery(callbackQueryId);
     return true;
+  }
+  if (data === "settings:open:voice-reply") {
+    await updateVoiceReplyModeSettingsMessage(deps);
+    await deps.answerCallbackQuery(callbackQueryId);
+    return true;
+  }
+  if (data.startsWith("settings:set:voice-reply:")) {
+    const mode = data.slice("settings:set:voice-reply:".length);
+    if (
+      mode === "hidden" ||
+      mode === "manual" ||
+      mode === "mirror" ||
+      mode === "always"
+    ) {
+      await deps.setVoiceReplyMode(mode === "hidden" ? undefined : mode);
+      await updateVoiceReplyModeSettingsMessage(deps);
+      await deps.answerCallbackQuery(
+        callbackQueryId,
+        `Voice reply mode: ${mode}`,
+      );
+      return true;
+    }
   }
   if (
     data === "settings:set:proactive:on" ||
@@ -251,6 +358,8 @@ export function createTelegramSettingsMenuRuntime<
         {
           getModelMenuState: () => deps.getModelMenuState(chatId, ctx),
           isProactivePushEnabled: deps.isProactivePushEnabled,
+          getVoiceReplyMode: deps.getVoiceReplyMode,
+          isVoiceReplyModeConfigured: deps.isVoiceReplyModeConfigured,
           sendSettingsMenu: (state, text, replyMarkup) =>
             deps.sendInteractiveMessage(
               state.chatId,
@@ -266,6 +375,8 @@ export function createTelegramSettingsMenuRuntime<
       updateTelegramSettingsMenuMessage(
         {
           isProactivePushEnabled: deps.isProactivePushEnabled,
+          getVoiceReplyMode: deps.getVoiceReplyMode,
+          isVoiceReplyModeConfigured: deps.isVoiceReplyModeConfigured,
           updateSettingsMessage: (text, replyMarkup) =>
             deps.editInteractiveMessage(
               state.chatId,
@@ -281,6 +392,18 @@ export function createTelegramSettingsMenuRuntime<
       if (!query.data?.startsWith("settings:")) return false;
       const state = deps.getStoredModelMenuState(query.message?.message_id);
       if (!state) {
+        const mode = query.data.slice("settings:set:voice-reply:".length);
+        if (
+          query.data.startsWith("settings:set:voice-reply:") &&
+          (mode === "hidden" ||
+            mode === "manual" ||
+            mode === "mirror" ||
+            mode === "always")
+        ) {
+          await deps.setVoiceReplyMode(mode === "hidden" ? undefined : mode);
+          await deps.answerCallbackQuery(query.id, `Voice reply mode: ${mode}`);
+          return true;
+        }
         await deps.answerCallbackQuery(
           query.id,
           "Interactive message expired.",
@@ -289,7 +412,10 @@ export function createTelegramSettingsMenuRuntime<
       }
       return handleTelegramSettingsMenuCallbackAction(query.id, query.data, {
         isProactivePushEnabled: deps.isProactivePushEnabled,
+        getVoiceReplyMode: deps.getVoiceReplyMode,
+        isVoiceReplyModeConfigured: deps.isVoiceReplyModeConfigured,
         setProactivePushEnabled: deps.setProactivePushEnabled,
+        setVoiceReplyMode: deps.setVoiceReplyMode,
         updateSettingsMessage: (text, replyMarkup) =>
           deps.editInteractiveMessage(
             state.chatId,

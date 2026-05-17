@@ -192,7 +192,34 @@ test("Turn runtime builder routes inbound handler output into prompt text", asyn
   );
   assert.equal(
     (turn.content[0] as { type: "text"; text: string }).text,
-    "[telegram]\n\n[attachments] /tmp\n- /voice-12.ogg\n\n[The user sent a voice message.]\n\n[outputs]\n- transcript from /work",
+    "[telegram]\n\n[attachments] /tmp\n- /voice-12.ogg\n\n[outputs]\n- transcript from /work",
+  );
+});
+
+test("Turn runtime omits voice context when reply mode is only the implicit default", async () => {
+  const buildTurn = createTelegramPromptTurnRuntimeBuilder<
+    {
+      message_id: number;
+      chat: { id: number };
+      voice: { file_id: string; mime_type: string };
+    },
+    unknown
+  >({
+    allocateQueueOrder: () => 1,
+    downloadFile: async (_fileId, fileName) => `/tmp/${fileName}`,
+    getVoiceReplyMode: () => "manual",
+    isVoiceReplyModeConfigured: () => false,
+  });
+  const turn = await buildTurn([
+    {
+      message_id: 13,
+      chat: { id: 5 },
+      voice: { file_id: "voice-1", mime_type: "audio/ogg" },
+    },
+  ]);
+  assert.doesNotMatch(
+    (turn.content[0] as { type: "text"; text: string }).text,
+    /\[voice\]/,
   );
 });
 
@@ -217,10 +244,14 @@ test("Voice reply mode tags turn when voice file present and mode is mirror", as
   });
   assert.equal(turn.voiceReplyPreferred, true);
   assert.equal(turn.voiceReplyRequired, false);
+  assert.match(
+    (turn.content[0] as { type: "text"; text: string }).text,
+    /\[voice\] reply mode: mirror/,
+  );
 });
 
 
-test("Voice reply mode tags turn with voice-required when mode is voice", async () => {
+test("Voice reply mode tags turn with voice-required when mode is always", async () => {
   const turn = await buildTelegramPromptTurnRuntime({
     telegramPrefix: "[telegram]",
     messages: [{ message_id: 15, chat: { id: 5 } }],
@@ -229,13 +260,17 @@ test("Voice reply mode tags turn with voice-required when mode is voice", async 
     files: [],
     statusText: "hello",
     inferImageMimeType: () => undefined,
-    voiceReplyMode: "voice",
+    voiceReplyMode: "always",
   });
   assert.equal(turn.voiceReplyPreferred, false);
   assert.equal(turn.voiceReplyRequired, true);
+  assert.match(
+    (turn.content[0] as { type: "text"; text: string }).text,
+    /\[voice\] reply mode: always/,
+  );
 });
 
-test("Voice reply mode mirror with no voice file does not set voiceReplyPreferred", async () => {
+test("Voice reply mode mirror with no voice file stays on the manual text path", async () => {
   const turn = await buildTelegramPromptTurnRuntime({
     telegramPrefix: "[telegram]",
     messages: [{ message_id: 17, chat: { id: 5 } }],
@@ -248,9 +283,13 @@ test("Voice reply mode mirror with no voice file does not set voiceReplyPreferre
   });
   assert.equal(turn.voiceReplyPreferred, false);
   assert.equal(turn.voiceReplyRequired, false);
+  assert.doesNotMatch(
+    (turn.content[0] as { type: "text"; text: string }).text,
+    /\[voice\]/,
+  );
 });
 
-test("Voice reply mode voice with voice file present sets voiceReplyRequired only", async () => {
+test("Voice reply mode always with voice file present sets voiceReplyRequired only", async () => {
   const turn = await buildTelegramPromptTurnRuntime({
     telegramPrefix: "[telegram]",
     messages: [{ message_id: 18, chat: { id: 5 } }],
@@ -265,10 +304,14 @@ test("Voice reply mode voice with voice file present sets voiceReplyRequired onl
       isImage: false,
     }],
     inferImageMimeType: () => undefined,
-    voiceReplyMode: "voice",
+    voiceReplyMode: "always",
   });
   assert.equal(turn.voiceReplyPreferred, false);
   assert.equal(turn.voiceReplyRequired, true);
+  assert.match(
+    (turn.content[0] as { type: "text"; text: string }).text,
+    /\[voice\] reply mode: always/,
+  );
 });
 
 test("Turn runtime tags manual mode without voice flags", async () => {
@@ -290,6 +333,10 @@ test("Turn runtime tags manual mode without voice flags", async () => {
   });
   assert.equal(turn.voiceReplyPreferred, false);
   assert.equal(turn.voiceReplyRequired, false);
+  assert.match(
+    (turn.content[0] as { type: "text"; text: string }).text,
+    /\[voice\] reply mode: manual/,
+  );
 });
 
 
@@ -634,8 +681,8 @@ test("getTelegramVoiceReplyMode returns default when no config provided", () => 
 
 
 test("getTelegramVoiceReplyMode reads frozen config with valid replyMode", () => {
-  const frozenConfig = Object.freeze({ voice: { replyMode: "voice" as const } });
-  assert.equal(getTelegramVoiceReplyMode(frozenConfig), "voice");
+  const frozenConfig = Object.freeze({ voice: { replyMode: "always" as const } });
+  assert.equal(getTelegramVoiceReplyMode(frozenConfig), "always");
 });
 
 test("getTelegramVoiceReplyMode ignores frozen config with invalid replyMode", () => {
@@ -645,7 +692,7 @@ test("getTelegramVoiceReplyMode ignores frozen config with invalid replyMode", (
 
 test("getTelegramVoiceReplyMode reads config voice.replyMode", () => {
   assert.equal(getTelegramVoiceReplyMode({ voice: { replyMode: "mirror" } }), "mirror");
-  assert.equal(getTelegramVoiceReplyMode({ voice: { replyMode: "voice" } }), "voice");
+  assert.equal(getTelegramVoiceReplyMode({ voice: { replyMode: "always" } }), "always");
   assert.equal(getTelegramVoiceReplyMode({ voice: { replyMode: "manual" } }), "manual");
 });
 

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.11.0: Voice Provider Platform
+
+- `[Voice Synthesis Provider API]` Added a first-class voice synthesis provider surface for Telegram voice replies. Providers register with `registerTelegramVoiceSynthesisProvider()` from `@llblab/pi-telegram/lib/voice.ts`, synthesize text into `.ogg`/`.opus`, may return `{ audioPath, transcriptText }`, and can contribute voice-specific prompt guidance through `getVoicePromptContribution(view)`.
+- `[Voice Prompt Context]` Replaced the redundant `[The user sent a voice message.]` prompt marker with compact voice context owned by pi-telegram: `[voice] reply mode: manual`, `[voice] reply mode: mirror`, or `[voice] reply mode: always`. The marker is placed after handler `[outputs]` when present, otherwise after `[attachments]`, and can expand to a `[voice]` list when more fields are added.
+- `[Voice Reply Policy]` Missing or invalid `telegram.json` `voice.replyMode` now resolves to `manual` regardless of provider defaults. Provider UIs can still change policy by writing `voice.replyMode` to the same config file pi-telegram reads.
+- `[Voice Reply Policy]` Added `voice.replyMode` with `manual`, `mirror`, and `always` modes. The bridge tags voice turns, suppresses previews for voice-tagged replies, and transparently converts implicit assistant text to voice when policy asks for it while explicit `<!-- telegram_voice -->` markup still wins.
+- `[Status UI]` Removed extension-section diagnostics from the Telegram status text. Section state belongs on dynamic section button labels and submenus, while `/telegram-status` keeps runtime/transport diagnostics focused.
+- `[Extension Sections]` Main-menu section rows now support a dynamic `getLabel()` function, matching Settings rows, so extensions can surface live state directly on their button labels.
+- `[Prompt Guidance]` Clarified `[voice]` turn context in the Telegram system prompt: `manual` means normal agent-authored output with optional explicit `telegram_voice` markup, `mirror` means voice input prefers voice output, and `always` means replies should stay TTS-friendly for automatic conversion.
+- `[Config Interop]` Added a narrow live config runtime so companion voice sections can update `telegram.json` voice policy and the active pi-telegram config store in one step.
+- `[Voice Delivery]` Restored outbound `type: "voice"` command handlers as the explicit first leg of voice delivery, followed by programmatic handlers and registered voice synthesis providers as zero-config fallbacks, so operator-configured `telegram.json` TTS handlers are never overridden by provider extensions.
+- `[Inbound Handler API]` Added `registerTelegramInboundHandler(kind, handler)` as the generic programmatic counterpart to configured `inboundHandlers`, completing the handler/provider matrix beside `registerTelegramOutboundHandler`, `registerTelegramVoiceTranscriptionProvider`, and `registerTelegramVoiceSynthesisProvider`.
+- `[Voice Transcription Provider API]` Added `registerTelegramVoiceTranscriptionProvider()` for provider-owned STT. Explicit inbound handlers and programmatic inbound handlers still run first; registered STT providers are fallback for voice/audio files without handler output.
+- `[Settings UI]` Added built-in voice reply mode controls to pi-telegram Settings and removed the need for provider extensions to own duplicate reply-policy UI; the selector persists `voice.replyMode` to `telegram.json` even from stale visible menu messages and uses the `👄 Voice reply: hidden|manual|mirror|always` row with lowercase model-style active dots.
+- `[Voice Prompt Context]` Missing or invalid `voice.replyMode` is now surfaced in Settings as `hidden`: it behaves like `manual`, emits no `[voice] reply mode: manual` prompt-context block, and stores no `voice.replyMode`; explicit `manual` keeps the same behavior but renders context. `mirror` mode text-originated turns stay on the manual text path, including support for explicit `telegram_voice` markup.
+- `[Voice Delivery]` Voice delivery now uses Telegram `sendVoice` plus the native `record_voice` chat action. Providers own speech rewriting, TTS, and OGG/Opus conversion; non-OGG provider output fails voice delivery and falls back to the planned text reply.
+- `[Voice Fallbacks]` Voice artifact failures now throw to the queue runtime, which records diagnostics and sends the planned text fallback with outbound markup stripped and reply markup preserved when no text was already delivered.
+- `[Voice Platform Cleanup]` Collapsed merged prototype-only domains: removed shared `globals`, `global-augmentations`, and broad `shutdown` cleanup modules. Voice, section, external-handler, and outbound-handler global registry keys are now owned by their respective domains, and session shutdown no longer clears every extension registry globally.
+- `[Docs]` Added `docs/voice.md` and README coverage for voice modes, provider registration, STT provider fallbacks, caption-style transcripts, native voice format requirements, fallback behavior, and provider-owned settings.
+- `[Tests]` Added voice policy, provider registry, preview suppression, artifact delivery, fallback, OGG/Opus validation, prompt contribution, and entrypoint/invariant regressions. Full validation passes with 575 tests.
+
 ## 0.10.8: Compact Typing Timing Hotfix
 
 - `[Compaction]` Telegram `/compact` now starts the native `typing` chat-action keepalive after the "Compaction started" notice is sent, then stops it on completion or failure. Impact: operators see the same Telegram activity indicator during context compression that they already see during normal agent/tool work, without showing `typing` before the explicit start confirmation arrives.
@@ -32,70 +53,6 @@
 ## 0.10.3: Dependency Audit Hotfix
 
 - `[Dependencies]` Refreshed the lockfile transitive dependency set to resolve current `protobufjs` / `@protobufjs/utf8` npm audit advisories inherited through development peer installs. Impact: `npm run validate` is green again without changing runtime API or bridge behavior.
-## Unreleased — Voice v2: Minimal Bridge + Provider Ownership
-
-Significant cleanup and architectural tightening to keep `pi-telegram` as a thin, stable interface:
-
-- The bridge now offers only the core seams:
-  - `registerTelegramVoiceProvider`
-  - `registerTelegramSection`
-  - `recordTelegramRuntimeEvent`
-  - `sendVoice` delivery + `record_voice` action
-  - `voice.replyMode` + transparent interception and preview suppression
-
-- Voice providers are now fully responsible for:
-  - Speech rewriting and tag handling
-  - TTS + conversion to OGG/Opus
-  - Whether to return `transcriptText` at all (based on the user's "Send Transcript" toggle in the Voice section)
-
-- When a provider returns `transcriptText`, the bridge attaches it as the **caption** on the voice message ("Send Transcript = ON"). "OFF" means the provider returns no transcript text (clean voice note, no caption, no extra message). The old separate transcript message path has been removed.
-
-- `getTelegramVoiceSendTranscript(config)` helper + `config.voice.sendTranscript` field added (provider ownership model means the bridge currently delegates the decision to whether the provider emits `transcriptText`).
-
-- A `getVoicePromptContribution(view)` hook exists in the `TelegramVoiceProvider` interface. Automatic injection by the bridge is planned but not yet implemented.
-
-- Major iteration debt removed:
-  - Entire "persistent registration" system (`persistent?` option, `reRegisterPersistent*` functions, auto-restore logic) deleted
-  - Local development resolver (`lib/dev.ts`) removed from the public package
-  - GlobalThis pollution significantly reduced
-  - Duplicate `TelegramVoiceProvider` interface + circular re-export conflicts cleaned
-  - `registerTelegramVoiceProvider` no longer mutates caller function objects (clean wrapper used instead)
-
-- `record_voice` chat action is now used during voice delivery.
-- All 562 tests pass. `npm run typecheck` green on voice surfaces. Weak `planTelegramVoiceReply` tests strengthened to use proper column-zero block syntax + real assertions.
-
-**Breaking for providers**: Must return `.ogg` or `.opus`. Non-OGG files are rejected and fall back to text delivery. Old MP3 return paths are no longer supported. `sendTranscriptAsMessage` is deprecated/ignored (use the toggle + whether you emit `transcriptText`).
-
-See `docs/voice.md` for the updated contract.
-
-- `[Voice Architecture]` Removed ffmpeg conversion from pi-telegram. Format conversion now lives in the voice provider extension (e.g. `pi-xai-voice`). The bridge expects providers to return `.ogg` or `.opus` files directly. Non-OGG files are rejected and the runtime falls back to text delivery.
-  - `lib/outbound-handlers.ts` — `ensureTelegramVoiceFileFormat` simplified to a format validator that accepts `.ogg` and `.opus` only. Removed `execCommand` parameter, ffmpeg conversion pipeline, and `sendAudio` fallback.
-  - `lib/outbound-handlers.ts` — `sendVoiceReply` no longer calls ffmpeg or falls back to `sendAudio`. Provider failures now throw directly, caught by queue runtime for text fallback.
-  - `tests/outbound-handlers.test.ts` — removed 6 conversion/fallback tests (MP3→OGG, sendAudio fallback, OGG ffmpeg, M4A fallback). Added 3 validation tests: accepts Opus, accepts OGG, throws for non-ogg files.
-- `[Voice API]` Extended `registerTelegramVoiceProvider` contract to accept `{ audioPath, transcriptText }` return values. Backward compatible: `string` returns work as before.
-  - `lib/outbound-handlers.ts` — `TelegramVoiceProvider` type updated to `Promise<string | { audioPath: string; transcriptText?: string } | undefined>`.
-  - `lib/outbound-handlers.ts` — `sendVoiceReply` extracts `audioPath` and optional `transcriptText` from provider result. `transcriptText` is sent as `caption` in the Telegram `sendVoice` multipart form.
-  - `tests/outbound-handlers.test.ts` — added tests for `{ audioPath }` and `{ audioPath, transcriptText }` return paths.
-- `[Voice Cleanup]` Removed `[VOICE-DEBUG]` console.log calls from voice pipeline (23 occurrences across `lib/outbound-handlers.ts`, `lib/queue.ts`, `lib/turns.ts`).
-- `[Validation]` Fixed protobuf audit vulnerabilities via `npm audit fix`.
-- `[Voice Bug Fixes]` Hardened voice delivery pipeline:
-  - `lib/outbound-handlers.ts` — `ensureTelegramVoiceFileFormat` now checks `result.code !== 0` after `execCommand("ffmpeg", ...)`. Previously the function ignored the ffmpeg exit code, returning a path to a non-existent file when conversion failed. The `sendAudio` fallback was therefore unreachable in production.
-  - `lib/outbound-handlers.ts` — `sendVoiceReply` now cleans up converted `.voice.ogg` temp files in a `finally` block after `sendMultipart` (success or failure). Previously every converted voice reply leaked a temp file.
-  - `lib/outbound-handlers.ts` — `ensureTelegramVoiceFileFormat` no longer trusts `.ogg` files to already contain Opus codec. Only `.opus` files skip conversion; `.ogg` and all other extensions are now passed through ffmpeg to ensure valid OGG/Opus output for Telegram `sendVoice`. `.ogg` files that fail conversion fall back to `sendAudio` (alongside `.mp3` and `.m4a`).
-  - `lib/outbound-handlers.ts` — removed unused `tempDir` field from `TelegramVoiceReplySenderDeps`.
-  - `tests/outbound-handlers.test.ts` — updated `sendAudio` fallback test to mock `execCommand` returning `{code: 1}` instead of throwing, matching real `CommandTemplates.execCommandTemplate` behavior. Added `.m4a` fallback test, `.ogg` conversion test, and sendAudio-fallback-failure test.
-- `[Voice Bug Fixes]` Hardened voice-mode menu/status suppression across the bridge:
-  - `lib/menu-thinking.ts` — `openTelegramThinkingMenu` and `updateTelegramThinkingMenuMessage` now early-return when `isVoiceReplyActive()` is true, preventing the thinking menu from opening or updating during voice replies.
-  - `lib/menu-status.ts` — `buildStatusReplyMarkup` already hides the Thinking button; `handleTelegramStatusMenuCallbackAction` already declines thinking callbacks with a voice-mode message. Both behaviors are now fully wired through `isVoiceReplyActive` in `TelegramStatusMenuCallbackDeps`.
-  - `lib/menu.ts` — `isVoiceReplyActive` is now threaded through `TelegramMenuCallbackRuntimeDeps`, `TelegramMenuActionRuntimeDeps`, and the runtime builder so all menu subsystems can access the active turn's voice flags.
-  - `index.ts` — exposes `isVoiceReplyActive` to the menu action runtime so status/thinking/queue menus can react to voice-tagged turns.
-- `[Voice Reply Policy]` Added configurable voice reply policies (`manual` / `mirror` / `voice`) with transparent text-to-voice interception. When active, the bridge suppresses text previews and converts agent text replies to voice messages automatically.
-- `[Voice Turn Tagging]` `PendingTelegramTurn` now carries `voiceReplyPreferred` and `voiceReplyRequired` flags. The bridge tags turns at construction based on `voice.replyMode` in `TelegramConfig`, read via `getTelegramVoiceReplyMode()`.
-- `[Transparent Interception]` In `mirror` and `voice` modes, agent text responses without explicit `<!-- telegram_voice -->` markup are transparently intercepted and routed through registered voice providers.
-- `[Voice Fallback]` When voice delivery fails (no providers registered or all providers failed), the voice sender throws and the runtime catches the error, falling back to sending the planned text reply (outbound markup stripped, replyMarkup preserved). Applies to both `voiceReplyPreferred` and `voiceReplyRequired` turns.
-- `[Extension API]` `registerTelegramVoiceProvider()` allows voice provider extensions (e.g. `pi-xai-voice`) to register TTS backends dynamically.
-- `[Validation]` `getTelegramVoiceReplyMode()` validates and normalizes the shared voice config, ensuring `replyMode: "manual"` default.
-- `[Docs]` New `docs/voice.md` with architecture, mode reference, registration examples, handler contract, and Telegram voice limits.
 
 ## 0.10.2: Delete Message Port Hotfix
 
@@ -203,7 +160,7 @@ See `docs/voice.md` for the updated contract.
 
 ## 0.9.0: Hidden Settings And Proactive Push
 
-- `[Settings Menu]` Added hidden Telegram `/settings` with a proactive push checkbox detail submenu plus `/telegram-settings` in the terminal. Impact: operators can see green/black binary flag state, use green/black/yellow On/Off checkbox controls from Telegram, and toggle the same proactive push flag locally without adding a visible bot-command entry.
+- `[Settings Menu]` Added hidden Telegram `/settings` with a proactive push checkbox detail submenu plus `/telegram-settings` in the terminal. Impact: operators can see green/black binary flag state, use green/black/yellow on/off checkbox controls from Telegram, and toggle the same proactive push flag locally without adding a visible bot-command entry.
 - `[Proactive Push]` `telegram.json` now supports `proactivePush`; when enabled, successful local non-Telegram π final replies are sent to the paired Telegram chat if no Telegram turn is active and the current session still owns the Telegram lock. Local prompt text stays private because the bot does not own or mirror terminal user messages. Impact: long local tasks can notify the phone with result context without leaking from stale bridge owners or failed/aborted turns.
 - `[Queue UI]` Empty queue states now use the bottom-filled `⌛` hourglass while non-empty queue states keep `⏳`. Queue item details now show the selected queue position above the raw prompt preview, preserve reaction-specific priority emoji in the heading, and use side-by-side Priority/Normal tabs that refresh the heading marker immediately. The terminal status bar now stays yellow active while Telegram-owned work still has running tools even if a queued prompt is removed by reaction. Impact: queue emptiness has a small visual easter egg, item submenus stay oriented without changing queue semantics, and queue-removal reactions no longer visually degrade active work to connected.
 - `[Model Menu]` Model rows now open a detail submenu with Back, ☑️ Activate/🟢 Active selection, and yellow/black-marked Scoped/All membership tabs. Impact: model selection remains one tap away while scoped model membership can be managed from Telegram.

@@ -137,16 +137,8 @@ test("Project source imports stay acyclic", () => {
   const graph = buildProjectImportGraph(getProjectSourceFiles());
   const cycles = findImportCycles(graph);
 
-  // Accepted cycles due to deliberate Voice domain split (Voice v2):
-  // - voice.ts owns policy, tagging, registry, planTelegramVoiceReply + Voice stripping
-  // - outbound-handlers.ts owns generic parsers (original, unmodified) + Delivery + mixed reply planner
-  // - queue.ts needs Voice tagging for turn handling
-  // This is the controlled cross for the thin bridge + backward compat.
-  // Only accept the deliberate voice.ts ↔ outbound-handlers.ts cycle.
-  // Any other cycle involving them (e.g. via queue or preview) should still be caught.
-  // Accept the deliberate voice domain split cycle (voice.ts ↔ outbound-handlers.ts)
-  // and small type-only cycles (e.g. voice <-> turns for types, queue <-> outbound for voice tagging).
-  // Larger cycles should still be caught.
+  // Temporary voice-provider cleanup allowance: keep known voice-domain cycles
+  // visible while still failing unrelated new cycles.
   const voiceRelatedCycles = cycles.filter((c) => {
     const hasVoice = c.some((m) => m.includes("voice.ts"));
     const hasOutbound = c.some((m) => m.includes("outbound-handlers.ts"));
@@ -252,13 +244,10 @@ test("Structural leaf domains stay free of local nominal imports", () => {
     ]),
   );
 
-  // status.ts is allowed to import from extension-sections.ts for section diagnostics.
-  // This is a deliberate, one-way, stable dependency (diagnostics are useful in status output).
-  // All other leaf domains must remain free of local imports.
   assert.deepEqual(localImportsByFile, {
     [join("lib", "polling.ts")]: [],
     [join("lib", "setup.ts")]: [],
-    [join("lib", "status.ts")]: ["./extension-sections.ts"],
+    [join("lib", "status.ts")]: [],
   });
 });
 

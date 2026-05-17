@@ -12,6 +12,8 @@ import { join, resolve } from "node:path";
 import type { TelegramInboundHandlerConfig } from "./inbound-handlers.ts";
 import type { CommandTemplateObjectConfig } from "./command-templates.ts";
 
+const CONFIG_RUNTIME_KEY = "__piTelegramConfigRuntime__";
+
 function getAgentDir(): string {
   return process.env.PI_CODING_AGENT_DIR
     ? resolve(process.env.PI_CODING_AGENT_DIR)
@@ -44,7 +46,7 @@ export interface TelegramConfig {
   outboundHandlers?: TelegramOutboundHandlerConfig[];
   proactivePush?: boolean;
   voice?: {
-    replyMode?: "manual" | "mirror" | "voice";
+    replyMode?: "manual" | "mirror" | "always";
     /** Whether to attach the provider's transcriptText as caption on voice messages */
     sendTranscript?: boolean;
   };
@@ -69,6 +71,29 @@ export interface TelegramConfigStoreOptions {
   initialConfig?: TelegramConfig;
   agentDir?: string;
   configPath?: string;
+}
+
+export interface TelegramConfigRuntime {
+  updateVoiceConfig: (voice: NonNullable<TelegramConfig["voice"]>) => void;
+}
+
+export function setGlobalTelegramConfigRuntime(
+  runtime: TelegramConfigRuntime | undefined,
+): void {
+  const globals = globalThis as Record<string, unknown>;
+  if (runtime) globals[CONFIG_RUNTIME_KEY] = runtime;
+  else delete globals[CONFIG_RUNTIME_KEY];
+}
+
+export function updateTelegramVoiceConfig(
+  voice: NonNullable<TelegramConfig["voice"]>,
+): boolean {
+  const runtime = (globalThis as Record<string, unknown>)[
+    CONFIG_RUNTIME_KEY
+  ] as TelegramConfigRuntime | undefined;
+  if (!runtime || typeof runtime.updateVoiceConfig !== "function") return false;
+  runtime.updateVoiceConfig(voice);
+  return true;
 }
 
 export async function readTelegramConfig(
@@ -143,6 +168,46 @@ export function createTelegramProactivePushSetter(
     const config = { ...configStore.get(), proactivePush: enabled };
     configStore.set(config);
     await configStore.persist(config);
+  };
+}
+
+export function createTelegramVoiceReplyModeGetter(
+  configStore: Pick<TelegramConfigStore, "get">,
+): () => "manual" | "mirror" | "always" {
+  return () => {
+    const mode = configStore.get().voice?.replyMode;
+    return mode === "mirror" || mode === "always" || mode === "manual"
+      ? mode
+      : "manual";
+  };
+}
+
+export function createTelegramVoiceReplyModeConfiguredChecker(
+  configStore: Pick<TelegramConfigStore, "get">,
+): () => boolean {
+  return () => {
+    const mode = configStore.get().voice?.replyMode;
+    return mode === "mirror" || mode === "always" || mode === "manual";
+  };
+}
+
+export function createTelegramVoiceReplyModeSetter(
+  configStore: Pick<TelegramConfigStore, "get" | "set" | "persist">,
+): (replyMode: "manual" | "mirror" | "always" | undefined) => Promise<void> {
+  return async (replyMode) => {
+    const current = configStore.get();
+    if (replyMode === undefined) {
+      const { replyMode: _replyMode, ...remainingVoice } = current.voice ?? {};
+      const next = { ...current };
+      if (Object.keys(remainingVoice).length > 0) next.voice = remainingVoice;
+      else delete next.voice;
+      configStore.set(next);
+      await configStore.persist(next);
+      return;
+    }
+    const next = { ...current, voice: { ...(current.voice ?? {}), replyMode } };
+    configStore.set(next);
+    await configStore.persist(next);
   };
 }
 

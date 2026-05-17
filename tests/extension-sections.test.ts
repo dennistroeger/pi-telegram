@@ -459,7 +459,11 @@ test("buildStatusReplyMarkup includes extension section rows before Settings", a
   const { buildStatusReplyMarkup } = await import("../lib/menu-status.ts");
   const registry = createTelegramExtensionSectionRegistry();
   registry.register(stubSection("@test/a", "Explorer"));
-  registry.register(stubSection("@test/b", "Status"));
+  registry.register(
+    stubSection("@test/b", "Status", {
+      getLabel: () => "🟢 Status",
+    }),
+  );
 
   const markup = buildStatusReplyMarkup(undefined, "off" as never, 0, registry);
   const rows = markup.inline_keyboard;
@@ -474,7 +478,7 @@ test("buildStatusReplyMarkup includes extension section rows before Settings", a
   // Section rows injected between Queue and Settings
   assert.equal(rows[settingsIdx - 2][0].text, "Explorer");
   assert.equal(rows[settingsIdx - 2][0].callback_data, "section:0:open");
-  assert.equal(rows[settingsIdx - 1][0].text, "Status");
+  assert.equal(rows[settingsIdx - 1][0].text, "🟢 Status");
   assert.equal(rows[settingsIdx - 1][0].callback_data, "section:1:open");
 });
 
@@ -493,7 +497,7 @@ test("buildTelegramSettingsMenuReplyMarkup injects extension settings rows", asy
     }),
   );
 
-  const markup = buildTelegramSettingsMenuReplyMarkup(false, registry);
+  const markup = buildTelegramSettingsMenuReplyMarkup(false, "manual", registry);
   const rows = markup.inline_keyboard;
 
   // First row: Main menu back
@@ -501,6 +505,7 @@ test("buildTelegramSettingsMenuReplyMarkup injects extension settings rows", asy
   // Second row: extension settings
   assert.equal(rows[1][0].text, "🔧 Extension A");
   assert.ok(rows[1][0].callback_data.startsWith("section:"));
-  // Third row: built-in Proactive push
-  assert.ok(rows[2][0].text.includes("Proactive push"));
+  // Built-in rows follow extension settings
+  assert.ok(rows[2][0].text.includes("Voice reply"));
+  assert.ok(rows[3][0].text.includes("Proactive push"));
 });

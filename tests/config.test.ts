@@ -13,9 +13,14 @@ import type { TelegramConfig } from "../lib/config.ts";
 import {
   createTelegramConfigStore,
   createTelegramUserPairingRuntime,
+  createTelegramVoiceReplyModeConfiguredChecker,
+  createTelegramVoiceReplyModeGetter,
+  createTelegramVoiceReplyModeSetter,
   getTelegramAuthorizationState,
   pairTelegramUserIfNeeded,
   readTelegramConfig,
+  setGlobalTelegramConfigRuntime,
+  updateTelegramVoiceConfig,
   writeTelegramConfig,
 } from "../lib/config.ts";
 import {
@@ -51,6 +56,66 @@ test("Telegram config helpers persist and reload config", async () => {
     (await readdir(agentDir)).filter((entry) => entry.includes(".tmp-")),
     [],
   );
+});
+
+test("Telegram voice reply mode helpers distinguish implicit and explicit manual", () => {
+  let config: TelegramConfig = {};
+  const store = { get: () => config };
+  const getMode = createTelegramVoiceReplyModeGetter(store);
+  const isConfigured = createTelegramVoiceReplyModeConfiguredChecker(store);
+
+  assert.equal(getMode(), "manual");
+  assert.equal(isConfigured(), false);
+
+  config = { voice: { replyMode: "manual" } };
+  assert.equal(getMode(), "manual");
+  assert.equal(isConfigured(), true);
+
+  config = { voice: { replyMode: "invalid" } } as unknown as TelegramConfig;
+  assert.equal(getMode(), "manual");
+  assert.equal(isConfigured(), false);
+});
+
+test("Telegram voice reply mode setter persists telegram.json", async () => {
+  const agentDir = await mkdtemp(join(tmpdir(), "pi-telegram-voice-mode-"));
+  const configPath = join(agentDir, "telegram.json");
+  const store = createTelegramConfigStore({
+    initialConfig: { botToken: "123:abc" },
+    agentDir,
+    configPath,
+  });
+  const setMode = createTelegramVoiceReplyModeSetter(store);
+
+  await setMode("mirror");
+
+  assert.deepEqual(store.get().voice, { replyMode: "mirror" });
+  assert.deepEqual(await readTelegramConfig(configPath), {
+    botToken: "123:abc",
+    voice: { replyMode: "mirror" },
+  });
+
+  await setMode(undefined);
+
+  assert.equal(store.get().voice, undefined);
+  assert.deepEqual(await readTelegramConfig(configPath), {
+    botToken: "123:abc",
+  });
+});
+
+test("Telegram config runtime lets extensions update live voice config", async () => {
+  let voice: TelegramConfig["voice"] | undefined;
+  setGlobalTelegramConfigRuntime({
+    updateVoiceConfig: (nextVoice) => {
+      voice = nextVoice;
+    },
+  });
+  try {
+    assert.equal(updateTelegramVoiceConfig({ replyMode: "mirror" }), true);
+    assert.deepEqual(voice, { replyMode: "mirror" });
+  } finally {
+    setGlobalTelegramConfigRuntime(undefined);
+  }
+  assert.equal(updateTelegramVoiceConfig({ replyMode: "always" }), false);
 });
 
 test("Telegram config store owns load, mutation, and persistence", async () => {

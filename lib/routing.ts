@@ -288,8 +288,13 @@ export function createTelegramInboundRouteRuntime<
     downloadFile: deps.downloadFile,
     processAttachments: deps.inboundHandlerRuntime.process,
 
-    // Voice policy for the current turn (from config + active voice provider)
+    // Voice policy for the current turn. Missing config still behaves as manual,
+    // but only explicit telegram.json voice.replyMode is shown in prompt context.
     getVoiceReplyMode: () => getTelegramVoiceReplyMode(deps.configStore.get()),
+    isVoiceReplyModeConfigured: () => {
+      const mode = deps.configStore.get().voice?.replyMode;
+      return mode === "manual" || mode === "mirror" || mode === "always";
+    },
   });
   const enqueueContinueTurn = async (
     message: TMessage,

@@ -4,7 +4,7 @@
  * Owns queue item contracts, lane admission, pure queue mutations, and dispatch planning
  */
 
-import { isVoiceTurn } from "./outbound-handlers.ts";
+import { isVoiceTurn } from "./voice.ts";
 
 // --- Queue Items ---
 
@@ -813,7 +813,11 @@ export interface TelegramAgentEndRuntimeDeps<
     text: string,
   ) => Promise<unknown>;
   sendQueuedAttachments: (turn: TTurn) => Promise<void>;
-  answerGuestQuery?: (guestQueryId: string, text?: string, options?: { parseMode?: string }) => Promise<void>;
+  answerGuestQuery?: (
+    guestQueryId: string,
+    text?: string,
+    options?: { parseMode?: string },
+  ) => Promise<void>;
   sendGuestReply?: (guestQueryId: string, markdown: string) => Promise<void>;
   planOutboundReply?: (
     markdown: string,
@@ -1018,13 +1022,10 @@ export async function handleTelegramAgentEndRuntime<
     (!outboundReply ||
       (!outboundReply.voiceText && !outboundReply.voiceReplies?.length));
   if (voiceInterceptionGuard) {
-    deps.recordRuntimeEvent?.("voice-debug", new Error("Voice interception triggered"), {
-      phase: "interception",
-      voiceText: plannedReply !== undefined ? plannedReply.markdown?.trim() : rawFinalText ?? "",
-    });
-    const voiceText = plannedReply !== undefined
-      ? (plannedReply.markdown?.trim() || "")
-      : (rawFinalText ?? "");
+    const voiceText =
+      plannedReply !== undefined
+        ? plannedReply.markdown?.trim() || ""
+        : (rawFinalText ?? "");
     outboundReply = outboundReply
       ? { ...outboundReply, voiceText, markdown: "" }
       : { markdown: "", voiceText };
@@ -1143,7 +1144,8 @@ export async function handleTelegramAgentEndRuntime<
       // Fallback to planned text when voice delivery fails and text wasn't already delivered
       if (rawFinalText?.trim() && !finalText && hasOutboundArtifacts) {
         try {
-          const fallbackMarkdown = plannedReply?.markdown || outboundReply?.voiceText || rawFinalText;
+          const fallbackMarkdown =
+            plannedReply?.markdown || outboundReply?.voiceText || rawFinalText;
           await deps.sendMarkdownReply(
             turn.chatId,
             turn.replyToMessageId,

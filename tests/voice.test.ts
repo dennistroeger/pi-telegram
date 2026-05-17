@@ -1,8 +1,6 @@
 /**
- * Comprehensive tests for the Voice Domain (lib/voice.ts)
- *
- * This file tests the centralized Voice logic that was introduced in Commit 2.
- * It covers policy resolution, turn tagging, suppression helpers, the provider registry,
+ * Tests for the voice domain.
+ * Covers policy resolution, turn tagging, suppression helpers, the provider registry,
  * and voice-specific markup parsing.
  */
 
@@ -16,15 +14,15 @@ import {
   shouldSuppressPreviewForVoice,
   type TelegramVoiceReplyMode,
   type TelegramVoiceTurnView,
-  type TelegramVoiceProvider,
-  type TelegramVoiceProviderResult,
+  type TelegramVoiceSynthesisProvider,
+  type TelegramVoiceSynthesisProviderResult,
 } from "../lib/voice.ts";
 
 import {
-  registerTelegramVoiceProvider,
-  getTelegramVoiceProviders,
-  hasTelegramVoiceProvider,
-  clearTelegramVoiceProviders,
+  registerTelegramVoiceSynthesisProvider,
+  getTelegramVoiceSynthesisProviders,
+  hasTelegramVoiceSynthesisProvider,
+  clearTelegramVoiceSynthesisProviders,
   planTelegramVoiceReply,
   stripTelegramCommentMarkupForPreview,
   stripTelegramCommentMarkupForDelivery,
@@ -32,21 +30,17 @@ import {
   normalizeMarkdownAfterVoiceExtraction,
 } from "../lib/outbound-handlers.ts";
 
-// ======================================================
-// === Test Setup
-// ======================================================
+// --- Test Setup ---
 
 beforeEach(() => {
-  clearTelegramVoiceProviders();
+  clearTelegramVoiceSynthesisProviders();
 });
 
 afterEach(() => {
-  clearTelegramVoiceProviders();
+  clearTelegramVoiceSynthesisProviders();
 });
 
-// ======================================================
-// === Policy Resolution
-// ======================================================
+// --- Policy Resolution ---
 
 test("getTelegramVoiceReplyMode returns 'manual' by default", () => {
   assert.equal(getTelegramVoiceReplyMode(), "manual");
@@ -57,7 +51,7 @@ test("getTelegramVoiceReplyMode returns 'manual' by default", () => {
 
 test("getTelegramVoiceReplyMode reads valid mode from config", () => {
   assert.equal(getTelegramVoiceReplyMode({ voice: { replyMode: "mirror" } }), "mirror");
-  assert.equal(getTelegramVoiceReplyMode({ voice: { replyMode: "voice" } }), "voice");
+  assert.equal(getTelegramVoiceReplyMode({ voice: { replyMode: "always" } }), "always");
   assert.equal(getTelegramVoiceReplyMode({ voice: { replyMode: "manual" } }), "manual");
 });
 
@@ -66,21 +60,19 @@ test("getTelegramVoiceReplyMode ignores invalid config values", () => {
   assert.equal(getTelegramVoiceReplyMode({ voice: { replyMode: "foo" as any } }), "manual");
 });
 
-test("getTelegramVoiceReplyMode respects provider policy via getVoicePolicy()", () => {
-  registerTelegramVoiceProvider(
+test("getTelegramVoiceReplyMode ignores provider policy without config", () => {
+  registerTelegramVoiceSynthesisProvider(
     {
-      getVoicePolicy: () => ({ replyMode: "voice" }),
+      getVoicePolicy: () => ({ replyMode: "always" }),
     } as any,
     { id: "test-provider-1" },
   );
 
-  // No (or invalid) config → first provider's policy wins (config has priority only when valid)
-  const result = getTelegramVoiceReplyMode({});
-  assert.equal(result, "voice");
+  assert.equal(getTelegramVoiceReplyMode({}), "manual");
 });
 
-test("getTelegramVoiceReplyMode falls back to config when provider returns invalid policy", () => {
-  registerTelegramVoiceProvider(
+test("getTelegramVoiceReplyMode reads config even when provider returns invalid policy", () => {
+  registerTelegramVoiceSynthesisProvider(
     {
       getVoicePolicy: () => ({ replyMode: "invalid" as any }),
     } as any,
@@ -91,27 +83,24 @@ test("getTelegramVoiceReplyMode falls back to config when provider returns inval
   assert.equal(result, "mirror");
 });
 
-test("getTelegramVoiceReplyMode prefers first valid provider policy", () => {
-  registerTelegramVoiceProvider(
+test("getTelegramVoiceReplyMode defaults to manual despite provider policies", () => {
+  registerTelegramVoiceSynthesisProvider(
     {
-      getVoicePolicy: () => ({ replyMode: "invalid" as any }),
+      getVoicePolicy: () => ({ replyMode: "mirror" }),
     } as any,
-    { id: "bad" },
+    { id: "mirror-provider" },
   );
-  registerTelegramVoiceProvider(
+  registerTelegramVoiceSynthesisProvider(
     {
-      getVoicePolicy: () => ({ replyMode: "voice" }),
+      getVoicePolicy: () => ({ replyMode: "always" }),
     } as any,
-    { id: "good" },
+    { id: "always-provider" },
   );
 
-  const result = getTelegramVoiceReplyMode();
-  assert.equal(result, "voice");
+  assert.equal(getTelegramVoiceReplyMode(), "manual");
 });
 
-// ======================================================
-// === Turn Tagging Helpers
-// ======================================================
+// --- Turn Tagging Helpers ---
 
 test("computeVoiceTurnFlags works for all modes", () => {
   assert.deepEqual(computeVoiceTurnFlags("mirror", true), {
@@ -124,7 +113,7 @@ test("computeVoiceTurnFlags works for all modes", () => {
     voiceReplyRequired: false,
   });
 
-  assert.deepEqual(computeVoiceTurnFlags("voice", false), {
+  assert.deepEqual(computeVoiceTurnFlags("always", false), {
     voiceReplyPreferred: false,
     voiceReplyRequired: true,
   });
@@ -145,9 +134,7 @@ test("isVoiceTurn detects voice-tagged turns correctly", () => {
   assert.equal(isVoiceTurn({}), false);
 });
 
-// ======================================================
-// === Preview Suppression
-// ======================================================
+// --- Preview Suppression ---
 
 test("shouldSuppressPreviewForVoice works correctly", () => {
   assert.equal(shouldSuppressPreviewForVoice({ voiceReplyPreferred: true }), true);
@@ -157,9 +144,7 @@ test("shouldSuppressPreviewForVoice works correctly", () => {
   assert.equal(shouldSuppressPreviewForVoice(undefined), false);
 });
 
-// ======================================================
-// === Voice Markup Parsing (planTelegramVoiceReply)
-// ======================================================
+// --- Voice Markup Parsing ---
 
 test("planTelegramVoiceReply extracts simple voice text", () => {
   const result = planTelegramVoiceReply("Hello\n\n<!-- telegram_voice: World -->");
@@ -201,63 +186,59 @@ test("planTelegramVoiceReply returns cleaned markdown", () => {
   assert.ok(!result.markdown.includes("telegram_voice"));
 });
 
-// ======================================================
-// === Voice Provider Registry
-// ======================================================
+// --- Voice Provider Registry ---
 
-test("Voice provider registry - basic register / get / has / clear", () => {
-  assert.equal(hasTelegramVoiceProvider(), false);
-  assert.equal(getTelegramVoiceProviders().length, 0);
+test("Voice synthesis provider registry - basic register / get / has / clear", () => {
+  assert.equal(hasTelegramVoiceSynthesisProvider(), false);
+  assert.equal(getTelegramVoiceSynthesisProviders().length, 0);
 
-  const dispose1 = registerTelegramVoiceProvider(() => Promise.resolve("audio.mp3"), { id: "p1" });
-  assert.equal(hasTelegramVoiceProvider(), true);
-  assert.equal(getTelegramVoiceProviders().length, 1);
+  const dispose1 = registerTelegramVoiceSynthesisProvider(() => Promise.resolve("audio.mp3"), { id: "p1" });
+  assert.equal(hasTelegramVoiceSynthesisProvider(), true);
+  assert.equal(getTelegramVoiceSynthesisProviders().length, 1);
 
-  const dispose2 = registerTelegramVoiceProvider(
+  const dispose2 = registerTelegramVoiceSynthesisProvider(
     {
-      getVoicePolicy: () => ({ replyMode: "voice" }),
+      getVoicePolicy: () => ({ replyMode: "always" }),
       getVoicePromptContribution: () => "Be concise.",
     } as any,
     { id: "p2" },
   );
-  assert.equal(getTelegramVoiceProviders().length, 2);
+  assert.equal(getTelegramVoiceSynthesisProviders().length, 2);
 
   dispose1();
-  assert.equal(getTelegramVoiceProviders().length, 1);
+  assert.equal(getTelegramVoiceSynthesisProviders().length, 1);
 
   dispose2();
-  assert.equal(hasTelegramVoiceProvider(), false);
+  assert.equal(hasTelegramVoiceSynthesisProvider(), false);
 });
 
-test("Voice provider registry accepts both function and object form", () => {
+test("Voice synthesis provider registry accepts both function and object form", () => {
   // Function form (backward compat)
-  registerTelegramVoiceProvider(() => Promise.resolve("audio1"), { id: "fn" });
+  registerTelegramVoiceSynthesisProvider(() => Promise.resolve("audio1"), { id: "fn" });
 
   // Object form
-  registerTelegramVoiceProvider(
+  registerTelegramVoiceSynthesisProvider(
     {
       getVoicePolicy: () => ({ replyMode: "mirror" }),
     } as any,
     { id: "obj" },
   );
 
-  const providers = getTelegramVoiceProviders();
+  const providers = getTelegramVoiceSynthesisProviders();
   assert.equal(providers.length, 2);
   assert.equal(typeof providers[0], "function");
   assert.equal(typeof providers[1], "object");
 });
 
-test("Voice provider registry clear works reliably for tests", () => {
-  registerTelegramVoiceProvider(() => Promise.resolve("x"), { id: "tmp" });
-  assert.equal(hasTelegramVoiceProvider(), true);
+test("Voice synthesis provider registry clear works reliably for tests", () => {
+  registerTelegramVoiceSynthesisProvider(() => Promise.resolve("x"), { id: "tmp" });
+  assert.equal(hasTelegramVoiceSynthesisProvider(), true);
 
-  clearTelegramVoiceProviders();
-  assert.equal(hasTelegramVoiceProvider(), false);
+  clearTelegramVoiceSynthesisProviders();
+  assert.equal(hasTelegramVoiceSynthesisProvider(), false);
 });
 
-// ======================================================
-// === Stripping & Generic Parser Interaction
-// ======================================================
+// --- Stripping And Generic Parser Interaction ---
 
 test("stripTelegramCommentMarkupForPreview removes voice blocks and normalizes whitespace", () => {
   const input = "Hello\n\n<!-- telegram_voice: World -->\n\nWorld";

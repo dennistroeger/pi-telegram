@@ -73,6 +73,10 @@ test("Prompt helpers build before-agent-start hooks", () => {
     defaultSystemPrompt,
     /`\[outputs\]` contains inbound-handler stdout/,
   );
+  assert.match(defaultSystemPrompt, /`\[voice\]` describes Telegram voice reply policy/);
+  assert.match(defaultSystemPrompt, /`manual` means answer normally/);
+  assert.match(defaultSystemPrompt, /`mirror` means voice input prefers a voice reply/);
+  assert.match(defaultSystemPrompt, /`always` means the final reply is expected to be converted to voice/);
   assert.match(defaultSystemPrompt, /telegram_attach/);
   assert.match(defaultSystemPrompt, /telegram_voice text="Short summary"/);
   assert.match(defaultSystemPrompt, /telegram_button: OK/);

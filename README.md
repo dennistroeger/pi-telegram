@@ -4,7 +4,7 @@
 
 **Telegram runtime adapter for π.**
 
-`pi-telegram` turns a private Telegram DM into a session-local operator console for π. It admits work, preserves context, streams readable replies, keeps busy sessions usable through queues, lets other extensions share one bot, and turns assistant-authored intent into native Telegram artifacts.
+`pi-telegram` turns a private Telegram DM into a session-local operator console for π. It admits work, preserves context, streams readable replies, keeps busy sessions usable through queues, lets other extensions share one bot, and turns assistant-authored intent into native Telegram artifacts. In `0.11.0`, it also becomes a voice-provider platform: companion extensions can supply Telegram transcription and synthesis providers while `pi-telegram` keeps ownership of transport, queueing, and reply policy.
 
 This repository is an actively maintained fork of [`badlogic/pi-telegram`](https://github.com/badlogic/pi-telegram). It started from upstream commit [`cb34008`](https://github.com/badlogic/pi-telegram/commit/cb34008460b6c1ca036d92322f69d87f626be0fc) and has since diverged substantially.
 
@@ -76,7 +76,7 @@ What it feels like:
 - Fire off three tasks while π is busy. They become visible queue items instead of terminal noise.
 - Open Queue from the menu, inspect waiting work, delete stale prompts, or move important work forward.
 - Switch models from Telegram mid-run; the adapter schedules a safe continuation instead of tearing state apart.
-- Send a voice note; an inbound handler transcribes it; π answers in the same chat.
+- Send a voice note; a configured inbound handler or registered STT provider transcribes it; π answers in the same chat.
 - Drop a screenshot and ask, "what is broken here?" The image payload reaches π with the local file context.
 - Ask for a generated file; when π calls `telegram_attach`, the artifact returns to Telegram with the next reply.
 
@@ -132,11 +132,11 @@ Rendering is phone-aware: tables and lists stay narrow, table padding accounts f
 
 Telegram replies to earlier text or caption messages are forwarded as `[reply]` context for normal prompts, while slash commands still parse from the new message text only. If a Telegram message is edited while still waiting in the queue, the queued turn is updated instead of duplicated. Very long text messages that Telegram appears to split automatically are coalesced through a conservative debounce when the first chunk is near Telegram's text limit.
 
-### Inbound handlers
+### Inbound handlers and STT providers
 
 `telegram.json` can define ordered `inboundHandlers` for Telegram → π preprocessing: text translation, voice transcription, OCR, PDF extraction, or any command-template pipeline. Matching handlers run before the turn enters the queue; failed handlers record diagnostics and fall back safely. Legacy `attachmentHandlers` still work as a deprecated compatibility alias appended after `inboundHandlers`.
 
-A practical voice setup is simple: Telegram `.ogg` arrives, STT runs locally or through your chosen command, stdout is injected as `[outputs]`, and π receives the result as usable prompt context.
+A practical voice setup is simple: Telegram `.ogg` arrives, STT runs locally or through your chosen command, stdout is injected as `[outputs]`, and π receives the result as usable prompt context. Extensions can also register programmatic inbound handlers; full voice extensions can register transcription providers. Explicit `inboundHandlers` and legacy `attachmentHandlers` run first, then programmatic inbound handlers, then registered STT providers as fallback for voice/audio files.
 
 ```json
 {
@@ -163,7 +163,7 @@ A practical voice setup is simple: Telegram `.ogg` arrives, STT runs locally or 
 }
 ```
 
-### Outbound handlers, voice, and buttons
+### Outbound handlers, voice synthesis providers, and buttons
 
 Assistant replies can include hidden outbound blocks. `telegram_voice` and `telegram_button` are not π tools; they are assistant-authored HTML comments that the adapter removes from Telegram text and handles after `agent_end`. Recognized blocks must start at column zero on a top-level line outside fenced code, quotes, and lists.
 
@@ -179,53 +179,37 @@ List the main risks first.
 -->
 ```
 
-Outbound `type: "text"` handlers can transform final text/Markdown before Telegram rendering and delivery. Outbound `type: "voice"` handlers can translate, synthesize, and convert hidden `telegram_voice` text into Telegram-native OGG/Opus voice through the same command-template contract used by inbound handlers.
+Outbound `type: "text"` handlers can transform final text/Markdown before Telegram rendering and delivery. Voice output can be handled either by configured `outboundHandlers` with `type: "voice"` or by registered voice synthesis provider extensions: the bridge extracts `telegram_voice` text or intercepts text by reply mode, asks the voice pipeline for a `.ogg`/`.opus` artifact, and uploads it through Telegram `sendVoice`. Explicit configured voice handlers run before zero-config providers, so operator-owned `telegram.json` pipelines stay authoritative.
 
-A composed voice pipeline can translate, synthesize, and convert in one pass:
-
-```json
-{
-  "outboundHandlers": [
-    {
-      "type": "voice",
-      "template": [
-        "/path/to/translate-stdin --lang {lang=ru}",
-        "/path/to/tts-from-stdin --lang {lang=ru} --rate {rate=+30%} --write-media {mp3}",
-        "ffmpeg -y -i {mp3} -c:a libopus -b:a 32k -ar 16000 -ac 1 -vbr on {ogg}"
-      ],
-      "output": "ogg"
-    }
-  ]
-}
-```
-
-The agent writes intent; the adapter owns transport. Text remains readable, voice becomes native Telegram media, and buttons route back as queued prompts.
+The agent writes intent; providers or voice handlers own TTS and format conversion, the adapter owns Telegram transport, and buttons route back as queued prompts.
 
 ### Voice reply policies
 
-The bridge can automatically convert agent text replies into Telegram voice messages without requiring explicit `<!-- telegram_voice -->` markup in every response. Set `voice.replyMode` in `telegram.json`:
+The bridge can automatically convert agent text replies into Telegram voice messages without requiring explicit `<!-- telegram_voice -->` markup in every response. Configure this from Settings → `👄 Voice reply` or by setting `voice.replyMode` in `telegram.json`:
 
-| Mode | Behavior |
-|------|----------|
-| `manual` (default) | Agent must use `<!-- telegram_voice -->` markup for voice replies. No automatic conversion. |
-| `mirror` | When the user sends a voice message, the next reply is automatically converted to voice (text preview suppressed). |
-| `voice` | Every reply is automatically converted to voice (text preview suppressed). |
+- `hidden` (default): no `voice.replyMode` is stored. Behavior is manual, but prompt context stays silent.
+- `manual`: agent-authored `<!-- telegram_voice -->` markup is required for voice replies; no automatic conversion. Unlike `hidden`, this explicit mode adds `[voice] reply mode: manual` context.
+- `mirror`: when the user sends a voice message, the next reply is converted to voice and text preview is suppressed. Text-originated turns stay on the normal/manual text path, so agent-authored `<!-- telegram_voice -->` markup still works explicitly.
+- `always`: every reply is converted to voice and text preview is suppressed.
 
-In `mirror` and `voice` modes, the bridge transparently intercepts agent text responses and routes them through registered voice providers. If voice generation fails, the bridge falls back to sending the text reply instead.
+If `telegram.json` explicitly sets a valid `voice.replyMode`, prompts include compact `[voice] reply mode: ...` context after handler outputs. When the field is missing or invalid, behavior still defaults to manual/hidden and the prompt context stays silent.
 
-Voice provider extensions (e.g. `pi-xai-voice`) register a TTS backend at runtime:
+In `mirror` and `always` modes, the bridge transparently intercepts agent text responses and routes them through the outbound voice pipeline. Configured `outboundHandlers` with `type: "voice"` run first in their configured order; zero-config registered synthesis providers run after them as progressive fallbacks. If several synthesis providers are installed, they are tried in registration order and the first one that returns a valid `.ogg`/`.opus` artifact handles the reply; `undefined`, errors, or invalid output fall through to the next provider. If every voice generator fails, the bridge falls back to sending the text reply instead.
+
+Voice synthesis provider extensions (e.g. `pi-xai-voice`) register a TTS backend at runtime:
 
 ```typescript
-import { registerTelegramVoiceProvider, recordTelegramRuntimeEvent } from "@llblab/pi-telegram";
+import { registerTelegramVoiceSynthesisProvider } from "@llblab/pi-telegram/lib/voice.ts";
+import { recordTelegramRuntimeEvent } from "@llblab/pi-telegram/lib/outbound-handlers.ts";
 
 // Return path only (backward compatible)
-const dispose = registerTelegramVoiceProvider(async (text, { lang, rate }) => {
+const dispose = registerTelegramVoiceSynthesisProvider(async (text, { lang, rate }) => {
   const path = await myTTS(text, { language: lang });
   return path; // must be .ogg or .opus
 });
 
 // Return path + transcript caption
-const dispose2 = registerTelegramVoiceProvider(async (text, { lang, rate }) => {
+const dispose2 = registerTelegramVoiceSynthesisProvider(async (text, { lang, rate }) => {
   const rewritten = rewriteWithSpeechTags(text); // internal TTS optimization
   const path = await myTTS(rewritten, { language: lang });
   return { audioPath: path, transcriptText: text };
@@ -238,7 +222,7 @@ recordTelegramRuntimeEvent("xai-voice", new Error("TTS complete"), {
 });
 ```
 
-Multiple providers can be registered; the bridge tries each in order until one succeeds. Providers receive the text to synthesize and optional `lang`/`rate` hints from `<!-- telegram_voice -->` markup or the automatic interception path. Providers must return `.ogg` or `.opus` files — format conversion is the provider's responsibility.
+Multiple synthesis providers can be registered; the bridge tries configured `type: "voice"` handlers first, then programmatic handlers, then registered synthesis providers in registration order until one succeeds. Providers and handlers receive the text to synthesize and optional `lang`/`rate` hints from `<!-- telegram_voice -->` markup or the automatic interception path. Voice delivery must produce `.ogg` or `.opus` files.
 
 ### Extension interop
 
@@ -248,7 +232,7 @@ Unknown inline-button callbacks are forwarded to π as `[callback] <data>` when 
 
 Ordinary pi extensions can register structured UI sections that appear in the main Telegram menu and Settings submenu without owning a second poller. Each section gets a narrow typed context with `edit`, `open`, `enqueuePrompt`, `answerCallback`, and `callbackData()` — enough to build interactive Telegram-native surfaces while `pi-telegram` owns transport, callback routing, navigation hierarchy, and diagnostics.
 
-Import from `@llblab/pi-telegram`, call `registerTelegramSection()`, and return a disposer on shutdown. Sections can send interactive messages directly into the chat via `ctx.open()` — confirmation dialogs, approve/deny gates, and multi-step forms live outside the menu hierarchy while callbacks route through the same typed handler. See [`@llblab/pi-telegram-extension-demo`](https://github.com/llblab/pi-telegram-extension-demo) for a working reference and the [Extension Sections Standard](./docs/extension-sections.md) for the full contract.
+Import `registerTelegramSection()` from `@llblab/pi-telegram/lib/extension-sections.ts` and return a disposer on shutdown. Sections can send interactive messages directly into the chat via `ctx.open()` — confirmation dialogs, approve/deny gates, and multi-step forms live outside the menu hierarchy while callbacks route through the same typed handler. See [`@llblab/pi-telegram-extension-demo`](https://github.com/llblab/pi-telegram-extension-demo) for a working reference and the [Extension Sections Standard](./docs/extension-sections.md) for the full contract.
 
 ### Proactive push
 

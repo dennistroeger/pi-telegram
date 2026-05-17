@@ -1194,7 +1194,6 @@ test("Agent end falls back to text when voice handler throws in always mode", as
       },
     });
     assert.deepEqual(events, [
-      "error:voice-debug:Voice interception triggered",
       "reset",
       "status",
       "clear",
@@ -1254,7 +1253,6 @@ test("Agent end falls back to text when voice handler throws in voice-received m
       },
     });
     assert.deepEqual(events, [
-      "error:voice-debug:Voice interception triggered",
       "reset",
       "status",
       "clear",
