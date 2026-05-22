@@ -25,7 +25,7 @@ import {
 } from "@llblab/pi-telegram/voice";
 ```
 
-`0.12.0` intentionally removes the published `@llblab/pi-telegram/lib/*.ts` compatibility wildcard. Integrations should use the public API domain subpaths above. Package exports point at `/api/*.ts` membranes that re-export only stable companion-extension symbols; implementation modules under `lib/` remain package-private.
+`0.12.0` intentionally removes the published `@llblab/pi-telegram/lib/*.ts` compatibility wildcard. Integrations should use the public API domain subpaths above. Package exports point at `/api/*.ts` membranes that re-export only stable companion-extension symbols; implementation modules under `lib/` remain package-private. See [Public API Smoke Examples](#public-api-smoke-examples) below for minimal companion-extension patterns that avoid implementation imports.
 
 ## User-Facing API
 
@@ -159,7 +159,7 @@ Contract:
 
 - `id` is unique per active registry. Duplicate ids are rejected.
 - `ctx.callbackData(action, payload?)` builds compact `section:` callbacks and validates Telegram's 64-byte limit.
-- `ctx.edit()` and `ctx.open()` auto-prepend the correct Back/Main-menu row.
+- `ctx.edit()` auto-prepends the correct Back/Main-menu row. `ctx.open()` sends a standalone chat message without auto-navigation.
 - Section errors are isolated and surfaced as callback popups/diagnostics.
 
 Full behavior: [Extension Sections](./sections.md).
@@ -233,15 +233,169 @@ const offStt = registerTelegramVoiceTranscriptionProvider(
 const offTts = registerTelegramVoiceSynthesisProvider(
   async (text, options) => {
     const audioPath = await synthesizeOggOpus(text, options);
-    return { audioPath, transcriptText: text };
+    return getTelegramVoiceSendTranscript(getCurrentTelegramConfigView())
+      ? { audioPath, transcriptText: text }
+      : { audioPath };
   },
   { id: "@scope/my-extension/tts" },
 );
 ```
 
-Stable voice-provider registrations pass a durable `id`. Omitting `id` is a compatibility path for older providers and receives a generated session-local id. Providers return `undefined` to pass. TTS providers must return `.ogg` or `.opus` files for native Telegram voice notes.
+Stable voice-provider registrations pass a durable `id`. Omitting `id` is a compatibility path for older providers and receives a generated session-local id. Providers return `undefined` to pass. TTS providers must return `.ogg` or `.opus` files for native Telegram voice notes. `voice.sendTranscript` is the bridge-owned transcript preference; providers that expose captions should gate `transcriptText` with `getTelegramVoiceSendTranscript(config)` instead of defining a second reply-policy toggle.
 
 Full behavior: [Voice Integration](./voice.md).
+
+## Public API Smoke Examples
+
+Minimal companion-extension examples that import only stable `@llblab/pi-telegram/*` public membranes. Copy one into an extension `index.ts`, load it beside `pi-telegram`, and verify that it starts without importing any `@llblab/pi-telegram/lib/*` implementation path.
+
+### Extension Sections
+
+```ts
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerTelegramSection } from "@llblab/pi-telegram/sections";
+
+export default function demoSection(pi: ExtensionAPI) {
+  let unregister: (() => void) | undefined;
+  pi.on("session_start", async () => {
+    unregister?.();
+    unregister = registerTelegramSection({
+      id: "demo-section/status",
+      label: "🧩 Demo section",
+      order: 50,
+      render: () => ({
+        text: "<b>Demo section</b>\n\nThis section was rendered by a companion extension.",
+        replyMarkup: { inline_keyboard: [] },
+      }),
+    });
+  });
+  pi.on("session_shutdown", async () => {
+    unregister?.();
+    unregister = undefined;
+  });
+}
+```
+
+### Raw Update Handler
+
+```ts
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerTelegramUpdateHandler } from "@llblab/pi-telegram/updates";
+
+export default function demoUpdates(pi: ExtensionAPI) {
+  let unregister: (() => void) | undefined;
+  pi.on("session_start", async () => {
+    unregister?.();
+    unregister = registerTelegramUpdateHandler((update) => {
+      if (!update || typeof update !== "object") return "pass";
+      return "pass";
+    });
+  });
+  pi.on("session_shutdown", async () => {
+    unregister?.();
+    unregister = undefined;
+  });
+}
+```
+
+### Inbound Handler
+
+```ts
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerTelegramInboundHandler } from "@llblab/pi-telegram/inbound";
+
+export default function demoInbound(pi: ExtensionAPI) {
+  let unregister: (() => void) | undefined;
+  pi.on("session_start", async () => {
+    unregister?.();
+    unregister = registerTelegramInboundHandler("text/*", async (file) => {
+      if (!file.path.endsWith(".demo.txt")) return undefined;
+      return `Demo inbound handler saw ${file.fileName ?? file.path}`;
+    });
+  });
+  pi.on("session_shutdown", async () => {
+    unregister?.();
+    unregister = undefined;
+  });
+}
+```
+
+### Outbound Handler
+
+```ts
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerTelegramOutboundHandler } from "@llblab/pi-telegram/outbound";
+
+export default function demoOutbound(pi: ExtensionAPI) {
+  let unregister: (() => void) | undefined;
+  pi.on("session_start", async () => {
+    unregister?.();
+    unregister = registerTelegramOutboundHandler("text", async (text) => {
+      if (!text.includes("[demo-outbound]")) return undefined;
+      return text.replace("[demo-outbound]", "Demo outbound handler:");
+    });
+  });
+  pi.on("session_shutdown", async () => {
+    unregister?.();
+    unregister = undefined;
+  });
+}
+```
+
+### Voice Providers
+
+```ts
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+  getTelegramVoiceSendTranscript,
+  registerTelegramVoiceSynthesisProvider,
+  registerTelegramVoiceTranscriptionProvider,
+} from "@llblab/pi-telegram/voice";
+
+export default function demoVoice(pi: ExtensionAPI) {
+  let unregisterTts: (() => void) | undefined;
+  let unregisterStt: (() => void) | undefined;
+  let currentConfig: { voice?: { sendTranscript?: boolean } } = {};
+  pi.on("session_start", async () => {
+    unregisterTts?.();
+    unregisterStt?.();
+    unregisterTts = registerTelegramVoiceSynthesisProvider(
+      async (text) => {
+        const audioPath = await synthesizeDemoOgg(text);
+        return getTelegramVoiceSendTranscript(currentConfig)
+          ? { audioPath, transcriptText: text }
+          : { audioPath };
+      },
+      { id: "demo-voice/tts" },
+    );
+    unregisterStt = registerTelegramVoiceTranscriptionProvider(
+      async (file) => {
+        if (file.kind !== "voice" && file.kind !== "audio") return undefined;
+        return { text: `Demo transcript for ${file.fileName ?? file.path}` };
+      },
+      { id: "demo-voice/stt" },
+    );
+  });
+  pi.on("session_shutdown", async () => {
+    unregisterTts?.();
+    unregisterStt?.();
+    unregisterTts = undefined;
+    unregisterStt = undefined;
+  });
+}
+
+async function synthesizeDemoOgg(_text: string): Promise<string> {
+  throw new Error("Replace synthesizeDemoOgg with a real OGG/Opus generator.");
+}
+```
+
+### Smoke Checklist
+
+- The extension imports only `@llblab/pi-telegram/sections`, `/updates`, `/inbound`, `/outbound`, `/voice`, or `/keyboard`.
+- It does not import `@llblab/pi-telegram/lib/*`.
+- It registers on `session_start` and disposes on `session_shutdown`.
+- Stable high-level registrations use durable ids.
+- Failures are visible during manual testing through `/telegram-status` or extension-owned logging.
 
 ## Callback Namespaces
 

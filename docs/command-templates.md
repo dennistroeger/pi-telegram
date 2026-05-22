@@ -33,14 +33,14 @@ There is no portable `command` field. The command is derived from `template`: af
 Common object fields:
 
 - `label`: Optional human label for diagnostics and parallel branch reports.
-- `mode`: Optional execution mode for array templates. Default is `"sequence"`; `"parallel"` runs children concurrently.
+- `parallel`: Optional boolean execution flag for array templates. Default is sequential execution; `true` runs children concurrently when the host execution layer supports branch fanout.
+- `when`: Optional boolean or condition string. Falsy values skip the node. String forms may reference a flag name, `!flag`, or a placeholder expression such as `{flag?yes:}`.
 - `args`: Optional placeholder declarations. Untyped names remain valid; compact typed forms such as `file:path`, `timeout:int`, `speed:number`, `dry_run:bool`, `prompts:array`, and `mode:enum(check,fix)` are valid when the host supports typed tool schemas. Defaults belong in `defaults` or inline placeholder defaults; hosts may normalize interactive shorthand such as `timeout:int=60000` before persistence.
 - `defaults`: Placeholder default values by name.
-- `timeout`: Optional execution timeout in milliseconds. Omit it, or set `0`, to leave the command unbounded. Set an explicit positive timeout when a tool must fail closed instead of waiting indefinitely.
-- `delay`: Optional wait in milliseconds before starting this node. Default is no delay.
+- `timeout`: Optional execution timeout in milliseconds, as a number or placeholder-resolved string. Omit it, or set `0`, to leave the command unbounded. Set an explicit positive timeout when a tool must fail closed instead of waiting indefinitely.
+- `delay`: Optional wait in milliseconds before starting this node, as a number or placeholder-resolved string. Default is no delay.
 - `output`: Optional result selector. Default is `"stdout"`; runtime values such as `"ogg"` are valid.
-- `retry`: Optional max attempts including the first. Default is `1`.
-- `critical`: Optional boolean. Backward-compatible alias for `failure: "root"`.
+- `retry`: Optional max attempts including the first, as a number or placeholder-resolved string. Default is `1`.
 - `failure`: Optional failure propagation scope: `continue`, `branch`, or `root`. Default is `continue`.
 - `recover`: Optional command template run between failed retry attempts. Recovery output is ignored; recovery failure stops retries.
 - `template`: Required command string or ordered composition array.
@@ -68,6 +68,8 @@ Supported forms:
 | `{name}`         | Required value from runtime values or `defaults` |
 | `{name=default}` | Inline default when no value is provided         |
 | `{items[index]}` | Array item selected by literal or repeat index   |
+| `{value??fallback}` | Fallback when the value is absent or falsy    |
+| `{flag?yes:no}`  | Conditional text selected by flag truthiness     |
 
 Resolution order is runtime values → `defaults` → inline default → error. Default values that are themselves a single placeholder, such as `{prompt}` resolving to `{prompts[index]}`, are resolved recursively with a small depth guard. A repeat node may set `repeat` to `{items.length}` when an array arg should determine fanout width.
 
@@ -127,8 +129,8 @@ template="echo 'literal words' {text}"
 
 Composition rules:
 
-- Execute leaves in order when `mode` is omitted or set to `"sequence"`
-- Execute child templates concurrently when `mode` is set to `"parallel"`
+- Execute leaves in order by default
+- Execute child templates concurrently when `parallel` is `true`
 - Parallel composition uses soft-quorum semantics by default: failed children are reported as degraded branches unless failure propagation escalates
 - Non-critical failures are recorded and execution continues, while `failure: "branch"` stops the current branch and `failure: "root"` aborts the root composition
 - Treat the whole composition as one handler for selector matching and fallback
@@ -163,7 +165,7 @@ Composition rules:
 
 ```json
 {
-  "mode": "parallel",
+  "parallel": true,
   "repeat": 8,
   "template": "render page{_(index+1)}.html --prev page{_(prev+1)}.html --next page{_(next+1)}.html --zero page{_index}.html"
 }
@@ -198,7 +200,7 @@ Parallel nodes use the same object shape. Flags come first and `template` stays 
   "template": [
     "prepare {out_dir}",
     {
-      "mode": "parallel",
+      "parallel": true,
       "template": [
         {
           "label": "gpt-5.5",
@@ -232,7 +234,7 @@ exit: 1
 stderr: provider balance exhausted
 ```
 
-Legacy local schemas may accept `pipe` as an alias, but the portable standard is `template: [...]`.
+Use `template: [...]` for ordered composition. Older local `pipe` aliases are not part of the 0.13.0 command-template standard.
 
 ## Fail-Open Default Policy
 
@@ -250,7 +252,7 @@ Use `failure` when a node should stop more aggressively:
 
 ```json
 {
-  "mode": "parallel",
+  "parallel": true,
   "template": [
     {
       "label": "agent-a",
@@ -276,7 +278,7 @@ Use `failure` when a node should stop more aggressively:
 
 If `agent-a-validate` fails, `agent-a-push` is skipped, `agent-b` can still finish, and the parallel join reports degraded branch coverage.
 
-`critical: true` remains a backward-compatible alias for `failure: "root"`. Prefer `failure` for new templates because it names the propagation scope directly.
+Use `failure: "root"` to abort the root composition. Older local `critical: true` shapes are not part of the 0.13.0 command-template standard.
 
 ## Retry
 
@@ -334,13 +336,13 @@ The standard uses a single `template` field that grows with the user's needs:
 string           → leaf command
 string[]         → sequential composition
 { template }     → leaf command object
-{ mode, template } → sequence or parallel subtree
-{ mode, args, defaults, delay, retry, failure, recover, output, template } → full node
+{ parallel, template } → parallel subtree
+{ parallel, when, args, defaults, delay, retry, failure, recover, output, template } → full node
 ```
 
-Start with a string. Add composition when needed. Add `mode: "parallel"` when independent work can run concurrently. Add delay when launch pacing matters. Add retry when flaky. Add `failure` when propagation scope matters. Add `recover` when a retried node needs cleanup before another attempt. Same contract, growing capability, no dead weight.
+Start with a string. Add composition when needed. Add `parallel: true` when independent work can run concurrently. Add `when` for conditional nodes. Add delay when launch pacing matters. Add retry when flaky. Add `failure` when propagation scope matters. Add `recover` when a retried node needs cleanup before another attempt. Same contract, growing capability, no dead weight.
 
-`mode: "parallel"` is the synchronous fanout shape. Saved JSON recipes and detached lifecycle concerns such as logs, cancellation, and durable state belong to host-specific recipe/async-run standards, not to command templates.
+`parallel: true` is the synchronous fanout shape. Saved JSON recipes and detached lifecycle concerns such as logs, cancellation, and durable state belong to host-specific recipe/async-run standards, not to command templates.
 
 ## Trust Boundary
 

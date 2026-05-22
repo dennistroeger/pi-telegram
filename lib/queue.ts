@@ -44,6 +44,9 @@ export interface TelegramQueueLaneContract {
 
 export const TELEGRAM_QUEUE_LANE_CONTRACTS: readonly TelegramQueueLaneContract[] =
   [
+    // Control lane intentionally accepts both direct controls and resume prompts.
+    // Model-switch continuations need prompt semantics but must run before queued user work.
+    // Do not admit ordinary user prompts here without an explicit control-flow reason.
     {
       lane: "control",
       admissionMode: "control-queue",

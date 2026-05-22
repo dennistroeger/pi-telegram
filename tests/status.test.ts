@@ -306,6 +306,7 @@ test("Bridge status runtime builds status state from live ports", () => {
     "- lanes: control=1, priority=0, default=0",
     "",
     "recent runtime events:",
+    "- summary: api=1",
     "- 1970-01-01T00:00:01.000Z api: ok",
   ]);
 });
@@ -352,6 +353,7 @@ test("Bridge status lines include queue lanes and recent runtime events", () => 
     "- lanes: control=1, priority=1, default=2",
     "",
     "recent runtime events:",
+    "- summary: api:sendMessage=1",
     "- 1970-01-01T00:00:00.001Z api:sendMessage: rate limited",
   ]);
 });
@@ -396,6 +398,7 @@ test("Runtime event lines render the recent-event ring newest first", () => {
     ]),
     [
       "recent runtime events:",
+      "- summary: api:sendMessage=1, poll=1",
       "- 1970-01-01T00:00:01.000Z api:sendMessage: rate limited",
       "- 1970-01-01T00:00:00.000Z poll: started",
     ],
@@ -427,6 +430,7 @@ test("Structured runtime event recording redacts messages and details", () => {
   ]);
   assert.deepEqual(buildTelegramRuntimeEventLines(events), [
     "recent runtime events:",
+    "- summary: api:sendMessage=1",
     '- 1970-01-01T00:00:01.000Z api:sendMessage: token <redacted-token> failed (token="<redacted-token>", retryable=true)',
   ]);
 });

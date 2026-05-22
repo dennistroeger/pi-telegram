@@ -1,64 +1,42 @@
 /**
  * Telegram outbound surface helpers
- * Zones: telegram outbound, assistant markup, command templates, callback routing
- * Owns assistant-authored outbound markup extraction, configured artifact generation, callback actions, runtime-event bridge, and Telegram outbound delivery
+ * Zones: telegram outbound, command templates, voice delivery
+ * Owns configured outbound handler execution, text transforms, voice-file generation/delivery, runtime-event bridge, and compatibility re-exports; assistant markup parsing lives in outbound-markup and button callback actions live in outbound-buttons
  */
 
 import { randomUUID } from "node:crypto";
-import { mkdir, unlink } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, extname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
-import type { TelegramInlineKeyboardMarkup } from "./keyboard.ts";
-import type { PendingTelegramTurn } from "./queue.ts";
-
-import { getTelegramVoiceSynthesisProviders } from "./voice.ts";
+import {
+  planTelegramButtonReply,
+  type TelegramButtonActionStore,
+  type TelegramOutboundButtonMarkup,
+} from "./outbound-buttons.ts";
+import {
+  planTelegramVoiceReply,
+  type TelegramVoiceReplyItem,
+} from "./outbound-markup.ts";
+import { createTelegramVoiceReplySender as createTelegramVoiceReplySenderWithPorts } from "./outbound-voice.ts";
 
 const OUTBOUND_HANDLER_REGISTRY_KEY = "__piTelegramOutboundHandlers__";
 const VOICE_EVENT_RECORDER_KEY = "__piTelegramVoiceEventRecorder__";
 
-function buildVoiceReplyParameters(
-  replyToPrompt: boolean | undefined,
-  replyToMessageId: number | undefined,
-): string | undefined {
-  if (replyToPrompt === false || replyToMessageId === undefined)
-    return undefined;
-  return JSON.stringify({
-    message_id: replyToMessageId,
-    allow_sending_without_reply: true,
-  });
-}
-
-async function ensureTelegramVoiceFileFormat(
-  filePath: string,
-): Promise<string> {
-  const ext = extname(filePath).toLowerCase();
-  if (ext === ".opus" || ext === ".ogg") {
-    return filePath;
-  }
-  throw new Error(
-    `Voice synthesis provider must return .ogg or .opus files, got ${ext}. ` +
-      `Providers should handle format conversion internally.`,
-  );
-}
-
 import {
   buildCommandTemplateInvocation,
   expandCommandTemplateConfigs,
+  substituteCommandTemplateToken,
   type CommandTemplateObjectConfig,
 } from "./command-templates.ts";
-import { truncateTelegramQueueSummary } from "./queue.ts";
-
-const TELEGRAM_BUTTON_CALLBACK_PREFIX = "tgbtn";
-const TELEGRAM_BUTTON_ACTION_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_VOICE_TIMEOUT_MS = 120_000;
 
 // --- Types ---
 
 /**
  * Record a runtime event that appears in `/telegram-status`.
- * Voice synthesis provider extensions (e.g. `pi-xai-voice`) can call this to surface
- * diagnostics alongside pi-telegram's own events. Events are silently dropped
+ * Voice synthesis provider extensions can call this to surface diagnostics
+ * alongside pi-telegram's own events. Events are silently dropped
  * when pi-telegram is not loaded.
  */
 export type TelegramRuntimeEventRecorder = (
@@ -92,24 +70,19 @@ export type TelegramOutboundCommandTemplateConfig =
 export interface TelegramOutboundHandlerConfig extends CommandTemplateObjectConfig {
   type?: string;
   match?: string | string[];
-  pipe?: TelegramOutboundCommandTemplateConfig[];
   output?: string;
-  timeout?: number;
+  timeout?: number | string;
 }
 
-export interface TelegramVoiceReplyItem {
-  text: string;
-  lang?: string;
-  rate?: string;
-}
-
-export interface TelegramVoiceReplyPlan {
-  markdown: string;
-  voiceText?: string;
-  voiceReplies?: TelegramVoiceReplyItem[];
-  lang?: string;
-  rate?: string;
-}
+export {
+  normalizeMarkdownAfterVoiceExtraction,
+  planTelegramVoiceReply,
+  stripTelegramCommentMarkupForDelivery,
+  stripTelegramCommentMarkupForPreview,
+  stripTelegramVoiceMarkupForPreview,
+  type TelegramVoiceReplyItem,
+  type TelegramVoiceReplyPlan,
+} from "./outbound-markup.ts";
 
 export interface TelegramVoiceExecOptions {
   cwd?: string;
@@ -278,172 +251,30 @@ export interface TelegramOutboundTextPreviewRuntimeDeps<
   recordRuntimeEvent?: TelegramVoiceReplySenderDeps["recordRuntimeEvent"];
 }
 
-interface TelegramTopLevelHtmlComment {
-  raw: string;
-  content: string;
-  start: number;
-  end: number;
-}
-
-interface TelegramTopLevelFenceState {
-  marker: "`" | "~";
-  length: number;
-}
-
-function isTelegramActionCommentContent(content: string): boolean {
-  const normalizedContent = content.replace(/^\s+/, "");
-  const [head = ""] = normalizedContent.split(/\r?\n/, 1);
-  return ["telegram_voice", "telegram_button"].some((command) => {
-    if (!head.startsWith(command)) return false;
-    const nextChar = head[command.length];
-    return nextChar === undefined || /\s|:/.test(nextChar);
-  });
-}
-
-function getMarkdownLineEnd(markdown: string, offset: number): number {
-  const newlineIndex = markdown.indexOf("\n", offset);
-  return newlineIndex === -1 ? markdown.length : newlineIndex + 1;
-}
-
-function getMarkdownLineText(
-  markdown: string,
-  offset: number,
-  end: number,
-): string {
-  return markdown.slice(offset, end).replace(/\r?\n$/, "");
-}
-
-function getTopLevelOpeningFence(
-  line: string,
-): TelegramTopLevelFenceState | undefined {
-  const match = line.match(/^(?: {0,3})(`{3,}|~{3,})/);
-  const sequence = match?.[1];
-  if (!sequence) return undefined;
-  return {
-    marker: sequence[0] as "`" | "~",
-    length: sequence.length,
-  };
-}
-
-function isTopLevelClosingFence(
-  line: string,
-  fence: TelegramTopLevelFenceState,
-): boolean {
-  const match = line.match(/^(?: {0,3})(`{3,}|~{3,})([ \t]*)$/);
-  const sequence = match?.[1];
-  return (
-    !!sequence &&
-    sequence[0] === fence.marker &&
-    sequence.length >= fence.length
-  );
-}
-
-function collectInlineClosedTelegramActionBody(
-  markdown: string,
-  bodyStart: number,
-  commentContent: string,
-): { content: string; end: number } | undefined {
-  const bodyLineEnd = getMarkdownLineEnd(markdown, bodyStart);
-  const bodyLine = getMarkdownLineText(markdown, bodyStart, bodyLineEnd);
-  const closeLineEnd = getMarkdownLineEnd(markdown, bodyLineEnd);
-  const closeLine = getMarkdownLineText(markdown, bodyLineEnd, closeLineEnd);
-  const hasRecoverableBody =
-    isTelegramActionCommentContent(commentContent) &&
-    bodyLine.trim() !== "" &&
-    !bodyLine.startsWith("<!--") &&
-    !bodyLine.startsWith("-->") &&
-    closeLine === "-->";
-  if (!hasRecoverableBody) return undefined;
-  return {
-    content: `${commentContent.trimEnd()}\n${bodyLine}`,
-    end: bodyLineEnd + 3,
-  };
-}
-
-function collectTopLevelHtmlComments(markdown: string): {
-  comments: TelegramTopLevelHtmlComment[];
-  openCommentStart?: number;
-} {
-  const comments: TelegramTopLevelHtmlComment[] = [];
-  let offset = 0;
-  let fence: TelegramTopLevelFenceState | undefined;
-  while (offset < markdown.length) {
-    const lineEnd = getMarkdownLineEnd(markdown, offset);
-    const line = getMarkdownLineText(markdown, offset, lineEnd);
-    if (fence) {
-      if (isTopLevelClosingFence(line, fence)) fence = undefined;
-      offset = lineEnd;
-      continue;
-    }
-    const nextFence = getTopLevelOpeningFence(line);
-    if (nextFence) {
-      fence = nextFence;
-      offset = lineEnd;
-      continue;
-    }
-    if (line.startsWith("<!--")) {
-      const closeIndex = markdown.indexOf("-->", offset + 4);
-      if (closeIndex === -1) return { comments, openCommentStart: offset };
-      let end = closeIndex + 3;
-      let raw = markdown.slice(offset, end);
-      let content = raw.slice(4, -3);
-      const closeColumn = closeIndex - offset;
-      const closesOnOpeningLine = closeIndex < lineEnd;
-      const hasOnlyWhitespaceAfterClose =
-        line.slice(closeColumn + 3).trim() === "";
-      const inlineBody =
-        closesOnOpeningLine && hasOnlyWhitespaceAfterClose
-          ? collectInlineClosedTelegramActionBody(markdown, lineEnd, content)
-          : undefined;
-      if (inlineBody) {
-        end = inlineBody.end;
-        raw = markdown.slice(offset, end);
-        content = inlineBody.content;
-      }
-      comments.push({ raw, content, start: offset, end });
-      offset = getMarkdownLineEnd(markdown, end);
-      continue;
-    }
-    offset = lineEnd;
-  }
-  return { comments };
-}
-
-// --- Voice Delivery Helpers ---
-
-function extractVoiceResult(result: any): {
-  filePath: string;
-  transcriptText?: string;
-} {
-  if (typeof result === "string") {
-    return { filePath: result };
-  }
-  return {
-    filePath: result.audioPath,
-    transcriptText: result.transcriptText,
-  };
-}
-
-async function sendVoiceChatAction(
-  deps: TelegramVoiceReplySenderDeps,
-  chatId: number,
-) {
-  if (deps.sendRecordVoiceAction) {
-    await deps.sendRecordVoiceAction(chatId).catch(() => {});
-  } else {
-    await deps.sendChatAction?.(chatId, "record_voice").catch(() => {});
-  }
-}
-
 // --- Voice Reply Timeout Helpers ---
+
+function resolveOutboundNumericControlField(
+  value: number | string | undefined,
+  values: Record<string, unknown>,
+  label: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  const resolved =
+    typeof value === "string"
+      ? substituteCommandTemplateToken(value, values, label)
+      : value;
+  if (resolved === "") return undefined;
+  const numeric = Number(resolved);
+  if (!Number.isFinite(numeric) || numeric < 0)
+    throw new Error(`Command template ${label} must be a non-negative number.`);
+  return numeric;
+}
 
 function getVoiceReplyConfiguredTimeout(
   config: TelegramOutboundCommandTemplateConfig | undefined,
 ): number | undefined {
   const timeout = typeof config === "string" ? undefined : config?.timeout;
-  return typeof timeout === "number" && Number.isFinite(timeout) && timeout > 0
-    ? timeout
-    : undefined;
+  return resolveOutboundNumericControlField(timeout, {}, "timeout");
 }
 
 function getVoiceReplyTimeout(
@@ -513,7 +344,13 @@ async function runVoiceReplyCommand(
       cwd: options.cwd,
       timeout: options.timeout,
       ...(typeof config === "object" && config.retry !== undefined
-        ? { retry: config.retry }
+        ? {
+            retry: resolveOutboundNumericControlField(
+              config.retry,
+              {},
+              "retry",
+            ),
+          }
         : {}),
       ...(options.stdin !== undefined ? { stdin: options.stdin } : {}),
     },
@@ -567,12 +404,6 @@ function getTelegramVoiceHandlerCompositionSteps(
     return expandCommandTemplateConfigs(
       handler,
     ) as TelegramOutboundCommandTemplateConfig[];
-  }
-  if (handler.pipe?.length) {
-    return expandCommandTemplateConfigs({
-      ...handler,
-      template: handler.pipe,
-    }) as TelegramOutboundCommandTemplateConfig[];
   }
   return [];
 }
@@ -664,7 +495,7 @@ async function generateTelegramVoiceReplyFileWithHandler(
         );
         stdout = result.stdout;
       } catch (error) {
-        if (typeof step === "object" && step.critical) throw error;
+        if (typeof step === "object" && step.failure === "root") throw error;
         stdout = "";
       }
     }
@@ -696,7 +527,7 @@ export async function generateTelegramVoiceReplyFile(
   },
 ): Promise<string | undefined> {
   const handler = options.handler;
-  if (!handler?.template && !handler?.pipe?.length) return undefined;
+  if (!handler?.template) return undefined;
   return generateTelegramVoiceReplyFileWithHandler(text, {
     lang: options.lang,
     rate: options.rate,
@@ -744,7 +575,7 @@ async function transformTelegramOutboundTextWithHandler(
         );
         stdout = result.stdout;
       } catch (error) {
-        if (typeof step === "object" && step.critical) throw error;
+        if (typeof step === "object" && step.failure === "root") throw error;
         stdout = "";
       }
       if (!stdout) stdout = text;
@@ -939,8 +770,8 @@ export {
   clearTelegramVoiceTranscriptionProviders,
   computeVoicePromptContribution,
   computeVoiceTurnFlags,
-  getTelegramVoiceSynthesisProviders,
   getTelegramVoiceReplyMode,
+  getTelegramVoiceSynthesisProviders,
   getTelegramVoiceTranscriptionProviders,
   hasTelegramVoiceSynthesisProvider,
   hasTelegramVoiceTranscriptionProvider,
@@ -948,590 +779,52 @@ export {
   registerTelegramVoiceSynthesisProvider,
   registerTelegramVoiceTranscriptionProvider,
   shouldSuppressPreviewForVoice,
+  type TelegramVoiceReplyMode,
   type TelegramVoiceSynthesisProvider,
   type TelegramVoiceSynthesisProviderResult,
-  type TelegramVoiceReplyMode,
   type TelegramVoiceTranscriptionFile,
   type TelegramVoiceTranscriptionProvider,
   type TelegramVoiceTranscriptionProviderResult,
   type TelegramVoiceTurnView,
 } from "./voice.ts";
 
-// --- Voice Delivery ---
-
-/**
- * Creates a function that sends voice replies using registered voice synthesis providers.
- *
- * This is the main entry point for delivering voice messages.
- * The actual decision logic (when to use voice) lives in `lib/voice.ts`.
- */
 export function createTelegramVoiceReplySender(
   deps: TelegramVoiceReplySenderDeps,
 ) {
-  async function uploadVoiceFile(
-    turn: TelegramVoiceReplyTurnView,
-    filePath: string,
-    options?: {
-      replyToPrompt?: boolean;
-      replyMarkup?: unknown;
-      transcriptText?: string;
-    },
-  ): Promise<void> {
-    const voiceFilePath = await ensureTelegramVoiceFileFormat(filePath);
-    await sendVoiceChatAction(deps, turn.chatId);
-    const replyParameters = buildVoiceReplyParameters(
-      options?.replyToPrompt,
-      turn.replyToMessageId,
-    );
-    await deps.sendMultipart(
-      "sendVoice",
-      {
-        chat_id: String(turn.chatId),
-        ...(options?.transcriptText ? { caption: options.transcriptText } : {}),
-        ...(replyParameters ? { reply_parameters: replyParameters } : {}),
-        ...(options?.replyMarkup !== undefined && options.replyMarkup !== null
-          ? {
-              reply_markup:
-                typeof options.replyMarkup === "string"
-                  ? options.replyMarkup
-                  : JSON.stringify(options.replyMarkup),
-            }
-          : {}),
-      },
-      "voice",
-      voiceFilePath,
-      basename(voiceFilePath),
-    );
-  }
-
-  return async function sendVoiceReply(
-    turn: TelegramVoiceReplyTurnView,
-    text: string,
-    options?: {
-      lang?: string;
-      rate?: string;
-      replyToPrompt?: boolean;
-      replyMarkup?: unknown;
-    },
-  ): Promise<void> {
-    for (const handler of findTelegramOutboundHandlers(
-      deps.getHandlers?.(),
-      "voice",
-    )) {
-      try {
-        const filePath = await generateTelegramVoiceReplyFile(text, {
-          lang: options?.lang,
-          rate: options?.rate,
-          handler,
-          tempDir: deps.tempDir,
-          cwd: deps.cwd,
-          execCommand: deps.execCommand,
-        });
-        if (!filePath) continue;
-        await uploadVoiceFile(turn, filePath, {
-          replyToPrompt: options?.replyToPrompt,
-          replyMarkup: options?.replyMarkup,
-        });
-        return;
-      } catch (error) {
-        deps.recordRuntimeEvent?.("voice", error, {
-          phase: "template-handler-send",
-        });
-      }
-    }
-
-    for (const handler of getTelegramOutboundProgrammaticHandlers("voice")) {
-      try {
-        const filePath = await handler(text, {
-          lang: options?.lang,
-          rate: options?.rate,
-        });
-        if (!filePath) continue;
-        await uploadVoiceFile(turn, filePath, {
-          replyToPrompt: options?.replyToPrompt,
-          replyMarkup: options?.replyMarkup,
-        });
-        return;
-      } catch (error) {
-        deps.recordRuntimeEvent?.("voice", error, {
-          phase: "programmatic-handler-send",
-        });
-      }
-    }
-
-    const providers = getTelegramVoiceSynthesisProviders();
-
-    for (const provider of providers) {
-      let voiceFilePath: string | undefined;
-      let originalFilePath: string | undefined;
-
-      try {
-        if (typeof provider !== "function") {
-          deps.recordRuntimeEvent?.(
-            "voice",
-            new Error(
-              "Registered voice synthesis provider is not callable (policy-only object?)",
-            ),
-            { phase: "voice-provider-skip" },
-          );
-          continue;
-        }
-
-        const providerResult = await provider(text, {
-          lang: options?.lang,
-          rate: options?.rate,
-        });
-
-        if (!providerResult) {
-          deps.recordRuntimeEvent?.(
-            "voice",
-            new Error("Voice synthesis provider returned empty path"),
-            { phase: "voice-provider-skip" },
-          );
-          continue;
-        }
-
-        const { filePath, transcriptText } = extractVoiceResult(providerResult);
-        voiceFilePath = filePath;
-        originalFilePath = filePath;
-        await uploadVoiceFile(turn, filePath, {
-          replyToPrompt: options?.replyToPrompt,
-          replyMarkup: options?.replyMarkup,
-          transcriptText,
-        });
-        return;
-      } catch (error) {
-        deps.recordRuntimeEvent?.("voice", error, { phase: "send" });
-      } finally {
-        if (voiceFilePath && voiceFilePath !== originalFilePath) {
-          await unlink(voiceFilePath).catch(() => {});
-        }
-      }
-    }
-
-    const errorMessage =
-      "Failed to send voice reply: every voice synthesis provider and outbound voice handler failed.";
-    deps.recordRuntimeEvent?.("voice", new Error(errorMessage), {
-      phase: "send",
-    });
-    throw new Error(errorMessage);
-  };
-}
-
-export interface TelegramOutboundButtonAction {
-  text: string;
-  prompt: string;
-}
-
-export interface TelegramOutboundButtonStoredAction extends TelegramOutboundButtonAction {
-  createdAt: number;
-}
-
-export type TelegramOutboundButtonMarkup = TelegramInlineKeyboardMarkup;
-
-export interface TelegramButtonReplyPlan {
-  markdown: string;
-  replyMarkup?: TelegramOutboundButtonMarkup;
-}
-
-export interface TelegramButtonActionStore {
-  register: (action: TelegramOutboundButtonAction) => string;
-  resolve: (
-    callbackData: string | undefined,
-  ) => TelegramOutboundButtonAction | undefined;
-}
-
-export interface TelegramButtonCallbackQuery {
-  id: string;
-  data?: string;
-  message?: {
-    message_id?: number;
-    chat?: { id?: number };
-  };
-}
-
-export interface TelegramButtonCallbackHandlerDeps<TContext = unknown> {
-  resolveAction: (
-    callbackData: string | undefined,
-  ) => TelegramOutboundButtonAction | undefined;
-  answerCallbackQuery: (
-    callbackQueryId: string,
-    text?: string,
-  ) => Promise<void>;
-  enqueueButtonPrompt: (
-    query: TelegramButtonCallbackQuery,
-    action: TelegramOutboundButtonAction,
-    ctx: TContext,
-  ) => void;
-}
-
-function nowMs(): number {
-  return Date.now();
-}
-
-function normalizeMarkdownAfterButtonExtraction(markdown: string): string {
-  return markdown.replace(/\n{3,}/g, "\n\n").trim();
-}
-
-export function replaceTopLevelHtmlComments(
-  markdown: string,
-  replacer: (comment: TelegramTopLevelHtmlComment) => string,
-): string {
-  const { comments } = collectTopLevelHtmlComments(markdown);
-  if (comments.length === 0) return markdown;
-  let result = "";
-  let offset = 0;
-  for (const comment of comments) {
-    result += markdown.slice(offset, comment.start);
-    result += replacer(comment);
-    offset = comment.end;
-  }
-  return result + markdown.slice(offset);
-}
-
-export function findTopLevelOpenOrPartialHtmlCommentIndex(
-  markdown: string,
-): number {
-  const { openCommentStart } = collectTopLevelHtmlComments(markdown);
-  if (openCommentStart !== undefined) return openCommentStart;
-  let offset = 0;
-  let fence: TelegramTopLevelFenceState | undefined;
-  while (offset < markdown.length) {
-    const lineEnd = getMarkdownLineEnd(markdown, offset);
-    const line = getMarkdownLineText(markdown, offset, lineEnd);
-    const isLastLine = lineEnd >= markdown.length;
-    if (fence) {
-      if (isTopLevelClosingFence(line, fence)) fence = undefined;
-      offset = lineEnd;
-      continue;
-    }
-    const nextFence = getTopLevelOpeningFence(line);
-    if (nextFence) {
-      fence = nextFence;
-      offset = lineEnd;
-      continue;
-    }
-    if (isLastLine && (line === "<" || line === "<!" || line === "<!-")) {
-      return offset;
-    }
-    offset = lineEnd;
-  }
-  return -1;
-}
-
-export function parseTopLevelTelegramComment(
-  comment: TelegramTopLevelHtmlComment,
-  command: string,
-): { head: string; body?: string } | undefined {
-  let normalizedContent = comment.content.replace(/^\s+/, "");
-  // Support both <!-- telegram_voice ... --> and <!--!telegram_voice ... --> forms
-  normalizedContent = normalizedContent.replace(/^!/, "");
-  const [rawHead = "", ...bodyLines] = normalizedContent.split(/\r?\n/);
-  let head = rawHead.trimStart();
-  // Only tolerate the '!' prefix (used in <!--!telegram_voice ... --> form).
-  // We intentionally do *not* do a broad strip of arbitrary non-letter characters
-  // to preserve the "column-zero only" + "must start with telegram_voice" contract.
-  if (!head.startsWith(command)) return undefined;
-  const nextChar = head[command.length];
-  if (nextChar !== undefined && !/\s|:/.test(nextChar)) return undefined;
-  return {
-    head: head.slice(command.length),
-    ...(bodyLines.length > 0 ? { body: bodyLines.join("\n") } : {}),
-  };
-}
-
-// --- Voice Comment Parsing Helpers ---
-
-/**
- * Extracts label and prompt from a telegram_button comment string.
- */
-export function parseTelegramCommentAttributes(
-  input: string,
-): Record<string, string> {
-  const attributes: Record<string, string> = {};
-  for (const match of input.matchAll(
-    /([A-Za-z_][A-Za-z0-9_-]*)=(?:"([^"]*)"|'([^']*)'|(\S+))/g,
-  )) {
-    const key = match[1];
-    const value = (match[2] ?? match[3] ?? match[4] ?? "").trim();
-    if (value) attributes[key] = value;
-  }
-  return attributes;
-}
-
-function parseButtonsCommentAttributes(input: string): {
-  label?: string;
-  prompt?: string;
-} {
-  const attributes = parseTelegramCommentAttributes(input);
-  return {
-    ...(attributes.label ? { label: attributes.label } : {}),
-    ...(attributes.prompt ? { prompt: attributes.prompt } : {}),
-  };
-}
-
-/**
- * Parses the content of a telegram_button comment into button rows.
- * Supports simple forms and forms with explicit label + prompt.
- */
-function parseButtonsCommentRows(
-  head: string,
-  body: string | undefined,
-): TelegramOutboundButtonAction[][] {
-  const trimmedHead = head.trim();
-
-  if (body === undefined) {
-    if (trimmedHead.startsWith(":")) {
-      const label = trimmedHead.slice(1).trim();
-      return label ? [[{ text: label, prompt: label }]] : [];
-    }
-    const attributes = parseButtonsCommentAttributes(head);
-    return attributes.label && attributes.prompt
-      ? [[{ text: attributes.label, prompt: attributes.prompt }]]
-      : [];
-  }
-
-  const label = parseButtonsCommentAttributes(head).label;
-  const prompt = body.trim();
-  if (!label || !prompt) return [];
-  return [[{ text: label, prompt }]];
-}
-
-// --- Voice Reply Planning ---
-
-// The generic comment parsing helpers (replaceTopLevelHtmlComments, etc.)
-// live locally in this file (used by both Voice and Button parsing).
-
-export function normalizeMarkdownAfterVoiceExtraction(
-  markdown: string,
-): string {
-  return markdown.replace(/\n{3,}/g, "\n\n").trim();
-}
-
-function parseVoiceReplyAttributes(input: string): {
-  lang?: string;
-  rate?: string;
-  text?: string;
-} {
-  const attributes = parseTelegramCommentAttributes(input);
-  return {
-    ...(attributes.lang ? { lang: attributes.lang } : {}),
-    ...(attributes.rate ? { rate: attributes.rate } : {}),
-    ...(attributes.text ? { text: attributes.text } : {}),
-  };
-}
-
-function parseVoiceCommentBody(
-  head: string,
-  body: string | undefined,
-): {
-  attrs: string;
-  text: string;
-} {
-  const trimmedHead = head.trim();
-  if (body !== undefined) {
-    return { attrs: trimmedHead.replace(/^:/, "").trim(), text: body.trim() };
-  }
-  // Always look for the first colon (that is not inside quotes) to separate attributes from text.
-  // This handles both simple ": text" and "attributes: text" forms.
-  let colonIndex = -1;
-  let inQuote = false;
-  let quoteChar = "";
-  for (let i = 0; i < trimmedHead.length; i++) {
-    const char = trimmedHead[i];
-    if (inQuote) {
-      if (char === quoteChar) inQuote = false;
-    } else {
-      if (char === '"' || char === "'") {
-        inQuote = true;
-        quoteChar = char;
-      } else if (char === ":") {
-        colonIndex = i;
-        break;
-      }
-    }
-  }
-  if (colonIndex > 0) {
-    const attrsPart = trimmedHead.slice(0, colonIndex).trim();
-    const textPart = trimmedHead.slice(colonIndex + 1).trim();
-    const attrs = parseVoiceReplyAttributes(attrsPart);
-    return { attrs: attrsPart, text: textPart || attrs.text || "", ...attrs };
-  }
-  if (trimmedHead.startsWith(":")) {
-    return { attrs: "", text: trimmedHead.slice(1).trim() };
-  }
-  const attrs = parseVoiceReplyAttributes(trimmedHead);
-  return { attrs: trimmedHead, text: attrs.text ?? "" };
-}
-
-export function stripTelegramCommentMarkupForPreview(markdown: string): string {
-  const withoutClosedBlocks = replaceTopLevelHtmlComments(markdown, () => "");
-  const openBlockIndex =
-    findTopLevelOpenOrPartialHtmlCommentIndex(withoutClosedBlocks);
-  const previewMarkdown =
-    openBlockIndex >= 0
-      ? withoutClosedBlocks.slice(0, openBlockIndex)
-      : withoutClosedBlocks;
-  return normalizeMarkdownAfterVoiceExtraction(previewMarkdown);
-}
-
-export function stripTelegramCommentMarkupForDelivery(
-  markdown: string,
-): string {
-  const withoutClosedBlocks = replaceTopLevelHtmlComments(markdown, () => "");
-  const openBlockIndex =
-    findTopLevelOpenOrPartialHtmlCommentIndex(withoutClosedBlocks);
-  const deliveryMarkdown =
-    openBlockIndex >= 0
-      ? withoutClosedBlocks.slice(0, openBlockIndex)
-      : withoutClosedBlocks;
-  return normalizeMarkdownAfterVoiceExtraction(deliveryMarkdown);
-}
-
-export function stripTelegramVoiceMarkupForPreview(markdown: string): string {
-  return stripTelegramCommentMarkupForPreview(markdown);
-}
-
-/**
- * Parse a Markdown reply for `telegram_voice` blocks and build a voice reply plan.
- */
-export function planTelegramVoiceReply(
-  markdown: string,
-): TelegramVoiceReplyPlan {
-  const voiceReplies: TelegramVoiceReplyItem[] = [];
-  let lang: string | undefined;
-  let rate: string | undefined;
-  const stripped = replaceTopLevelHtmlComments(markdown, (comment) => {
-    let command = parseTopLevelTelegramComment(comment, "telegram_voice");
-    if (!command) {
-      // Robust fallback for Voice-specific comments.
-      // Reached only for certain edge-case extractions from collectTopLevelHtmlComments
-      // (e.g. comments with unusual leading characters or legacy forms that survive the
-      // normalization in parseTopLevelTelegramComment but still contain "telegram_voice").
-      // This path is intentionally narrow and not exercised by current documented usage.
-      let content = comment.content.replace(/^\s+/, "").replace(/^!/, "");
-      if (content.startsWith("telegram_voice")) {
-        const headPart = content.slice("telegram_voice".length).trim();
-        command = { head: headPart, body: undefined };
-      }
-    }
-    if (!command) return "";
-    const parsed = parseVoiceCommentBody(command.head, command.body);
-    const attrs = parseVoiceReplyAttributes(parsed.attrs);
-    if (parsed.text) {
-      voiceReplies.push({
-        text: parsed.text,
-        ...(attrs.lang ? { lang: attrs.lang } : {}),
-        ...(attrs.rate ? { rate: attrs.rate } : {}),
-      });
-    }
-    if (attrs.lang) lang = attrs.lang;
-    if (attrs.rate) rate = attrs.rate;
-    return "";
+  return createTelegramVoiceReplySenderWithPorts(deps, {
+    findVoiceHandlers: (handlers) =>
+      findTelegramOutboundHandlers(
+        handlers as TelegramOutboundHandlerConfig[] | undefined,
+        "voice",
+      ),
+    generateVoiceFile: (text, options) =>
+      generateTelegramVoiceReplyFile(text, {
+        lang: options.lang,
+        rate: options.rate,
+        handler: options.handler,
+        tempDir: options.tempDir,
+        cwd: options.cwd,
+        execCommand: options.execCommand,
+      }),
+    getProgrammaticVoiceHandlers: () =>
+      getTelegramOutboundProgrammaticHandlers("voice"),
   });
-  const voiceText = voiceReplies
-    .map((reply) => reply.text)
-    .join("\n\n")
-    .trim();
-  return {
-    markdown: stripTelegramCommentMarkupForDelivery(stripped),
-    ...(voiceText ? { voiceText } : {}),
-    ...(voiceReplies.length > 0 ? { voiceReplies } : {}),
-    ...(lang ? { lang } : {}),
-    ...(rate ? { rate } : {}),
-  };
 }
 
-// --- Button And Action Handling ---
-
-/**
- * Handles assistant-authored buttons (<!-- telegram_button -->) and their callbacks.
- * Supports both simple buttons and buttons that enqueue a prompt when clicked.
- */
-
-/**
- * Creates an in-memory store for button actions.
- * Buttons can be registered with a prompt that gets enqueued when the button is clicked.
- * Old actions are automatically cleaned up after the configured TTL.
- */
-export function createTelegramButtonActionStore(
-  options: { ttlMs?: number } = {},
-): TelegramButtonActionStore {
-  const ttlMs = options.ttlMs ?? TELEGRAM_BUTTON_ACTION_TTL_MS;
-  const actions = new Map<string, TelegramOutboundButtonStoredAction>();
-  function cleanup(currentTime: number): void {
-    for (const [key, action] of actions) {
-      if (currentTime - action.createdAt > ttlMs) actions.delete(key);
-    }
-  }
-  return {
-    register: (action) => {
-      const currentTime = nowMs();
-      cleanup(currentTime);
-
-      // Short random key for the callback_data (e.g. tgbtn:abcd1234)
-      const key = `${TELEGRAM_BUTTON_CALLBACK_PREFIX}:${randomUUID().slice(0, 8)}`;
-      actions.set(key, { ...action, createdAt: currentTime });
-      return key;
-    },
-    resolve: (callbackData) => {
-      if (!callbackData?.startsWith(`${TELEGRAM_BUTTON_CALLBACK_PREFIX}:`)) {
-        return undefined;
-      }
-
-      const currentTime = nowMs();
-      cleanup(currentTime);
-
-      const action = actions.get(callbackData);
-      if (!action) return undefined;
-
-      return { text: action.text, prompt: action.prompt };
-    },
-  };
-}
-
-/**
- * Parses assistant markdown for `<!-- telegram_button -->` blocks
- * and builds a button plan (inline keyboard + registered actions).
- * Supports both simple label-only buttons and buttons with explicit prompts.
- */
-export function planTelegramButtonReply(
-  markdown: string,
-  deps: { registerAction: (action: TelegramOutboundButtonAction) => string },
-): TelegramButtonReplyPlan {
-  const keyboard: TelegramOutboundButtonMarkup["inline_keyboard"] = [];
-  const stripped = replaceTopLevelHtmlComments(markdown, (comment) => {
-    const command = parseTopLevelTelegramComment(comment, "telegram_button");
-    if (!command) return comment.raw;
-    const rows = parseButtonsCommentRows(command.head, command.body);
-    for (const row of rows) {
-      keyboard.push(
-        row.map((button) => ({
-          text: button.text,
-          callback_data: deps.registerAction(button),
-        })),
-      );
-    }
-    return "";
-  });
-  return {
-    markdown: normalizeMarkdownAfterButtonExtraction(stripped),
-    ...(keyboard.length > 0
-      ? { replyMarkup: { inline_keyboard: keyboard } }
-      : {}),
-  };
-}
-
-/**
- * Creates a thin planner that combines `planTelegramButtonReply` with a given action store.
- * Mainly used to keep the call site clean when planning button replies from the artifact sender.
- */
-export function createTelegramButtonReplyPlanner(
-  store: Pick<TelegramButtonActionStore, "register">,
-): (markdown: string) => TelegramButtonReplyPlan {
-  return (markdown) =>
-    planTelegramButtonReply(markdown, { registerAction: store.register });
-}
+export {
+  createTelegramButtonActionStore,
+  createTelegramButtonPromptTurn,
+  createTelegramButtonReplyPlanner,
+  handleTelegramButtonCallbackQuery,
+  planTelegramButtonReply,
+  type TelegramButtonActionStore,
+  type TelegramButtonCallbackHandlerDeps,
+  type TelegramButtonCallbackQuery,
+  type TelegramButtonReplyPlan,
+  type TelegramOutboundButtonAction,
+  type TelegramOutboundButtonMarkup,
+  type TelegramOutboundButtonStoredAction,
+} from "./outbound-buttons.ts";
 
 export function createTelegramOutboundReplyPlanner(
   store: Pick<TelegramButtonActionStore, "register">,
@@ -1612,62 +905,4 @@ export function createTelegramOutboundReplyArtifactSender(
       );
     }
   };
-}
-
-export function createTelegramButtonPromptTurn(options: {
-  chatId: number;
-  replyToMessageId: number;
-  queueOrder: number;
-  action: TelegramOutboundButtonAction;
-}): PendingTelegramTurn {
-  const prompt = `[telegram] ${options.action.prompt}`;
-  return {
-    kind: "prompt",
-    chatId: options.chatId,
-    replyToMessageId: options.replyToMessageId,
-    sourceMessageIds: [options.replyToMessageId],
-    queueOrder: options.queueOrder,
-    queueLane: "default",
-    laneOrder: options.queueOrder,
-    queuedAttachments: [],
-    content: [{ type: "text", text: prompt }],
-    historyText: options.action.prompt,
-    statusSummary: truncateTelegramQueueSummary(
-      options.action.text || options.action.prompt,
-    ),
-  };
-}
-
-/**
- * Handles a button callback query.
- * Resolves the stored action, answers the callback, and enqueues the associated prompt if present.
- * Returns true if the query was handled by this system (even if the action had expired).
- */
-export async function handleTelegramButtonCallbackQuery<TContext = unknown>(
-  query: TelegramButtonCallbackQuery,
-  ctx: TContext,
-  deps: TelegramButtonCallbackHandlerDeps<TContext>,
-): Promise<boolean> {
-  const action = deps.resolveAction(query.data);
-
-  // Unknown / expired button (we only own tgbtn: keys)
-  if (!action) {
-    if (query.data?.startsWith(`${TELEGRAM_BUTTON_CALLBACK_PREFIX}:`)) {
-      await deps.answerCallbackQuery(query.id, "Button action expired.");
-      return true;
-    }
-    return false;
-  }
-
-  // Invalid message context (should not happen for private chat buttons)
-  const chatId = query.message?.chat?.id;
-  const messageId = query.message?.message_id;
-  if (typeof chatId !== "number" || typeof messageId !== "number") {
-    await deps.answerCallbackQuery(query.id, "Button action expired.");
-    return true;
-  }
-
-  deps.enqueueButtonPrompt(query, action, ctx);
-  await deps.answerCallbackQuery(query.id, "Queued.");
-  return true;
 }

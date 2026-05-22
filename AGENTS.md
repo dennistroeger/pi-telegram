@@ -97,7 +97,7 @@
 
 - Keep comments and user-facing docs in English unless the surrounding file already follows another convention
 - Each project `.ts` file should start with a short multi-line responsibility header comment that explains the file boundary to future maintainers; source-module headers must include `Zones:` tags for cross-cutting responsibility areas
-- Name extracted `/lib` modules and mirrored `/tests` suites by bare domain when the repository already supplies the Telegram scope; prefer `api.ts`, `queue.ts`, `updates.ts`, and `queue.test.ts` over redundant `telegram-*` filename prefixes
+- Name extracted `/lib` modules and mirrored `/tests` suites by bare domain when the repository already supplies the Telegram scope; prefer `queue.ts`, `updates.ts`, and `queue.test.ts` over redundant `telegram-*` filename prefixes. Exception: the concrete Bot API transport domain is named `telegram-api.ts` / `telegram-api.test.ts` to avoid ambiguity with the public `/api/*.ts` package membranes
 - Keep test helpers with the mirrored domain suite by default because test files mirror module-domain boundaries; introduce shared `tests/fixtures` only when multiple domain suites truly reuse the same setup
 - Prefer targeted edits, keeping `index.ts` as the orchestration layer and moving reusable logic into flat `/lib` domain modules when a subsystem becomes large enough to earn extraction
 - Keep composition wiring DRY with small local adapters or owning-domain contracts when repetition appears, but do not hide live mutable session state behind broad facades just to reduce repeated closures
@@ -109,7 +109,7 @@ The canonical detailed ownership map lives in [`docs/architecture.md`](./docs/ar
 
 - Scheduling and lifecycle: `queue`, `runtime`, `lifecycle`, `locks`
 - Telegram transport and inbound flow: `api`, `polling`, `updates`, `routing`, `media`, `turns`, `inbound`, `config`, `setup`
-- Response surfaces: `preview`, `replies`, `rendering`, `keyboard`, `outbound-attachments`, `outbound`, `voice`, `status`
+- Response surfaces: `preview`, `replies`, `rendering`, `keyboard`, `outbound-markup`, `outbound-attachments`, `outbound`, `voice`, `status`
 - Controls and application menu UI: `commands`, `menu`, `menu-model`, `menu-thinking`, `menu-status`, `menu-queue`, `model`, `prompts`
 - Extension platform: `sections` owns section registry, token mapping, callback dispatch, context building, and its globalThis bridge; `voice` owns the voice-provider registry and its globalThis bridge
 - Pi SDK boundary: `pi` owns direct pi imports and bound extension API ports; `bindings` owns pi-facing command/tool/lifecycle registration wiring extracted from the entrypoint
@@ -119,7 +119,7 @@ The canonical detailed ownership map lives in [`docs/architecture.md`](./docs/ar
 - Keep preview appearance logic in the rendering domain and preview transport/lifecycle logic in the preview domain so richer streaming strategies can evolve without entangling Telegram delivery state with Markdown formatting rules
 - Keep direct `node:*` file-operation dependencies out of `index.ts` when an owning domain exists; the entrypoint should compose ports while domains own local filesystem details such as temp-dir preparation, attachment stats, and turn image reads
 - In `index.ts`, prefer namespace imports for local bridge domains so orchestration reads as domain-scoped calls such as `Queue.*`, `Turns.*`, and `Rendering.*` instead of long flat import lists
-- Keep the local `index.ts` plus `/lib/*.ts` import graph acyclic; `tests/invariants.test.ts` guards this boundary plus shared-bucket bans, empty interface-extension shell regressions, pi SDK centralization, source-only entrypoint Node-runtime/local-adapter/process/direct-pi access avoidance, runtime-domain isolation, structural leaf-domain import isolation, menu/model boundary drift, API/config default coupling, structural update/media coupling to API transport shapes, and attachment coupling to queue/inbound media/API helpers as domains keep evolving
+- Keep the local `index.ts` plus `/lib/*.ts` import graph acyclic; `tests/invariants.test.ts` guards this boundary plus shared-bucket bans, empty interface-extension shell regressions, pi SDK centralization, source-only entrypoint Node-runtime/local-adapter/process/direct-pi access avoidance, runtime-domain isolation, structural leaf-domain import isolation, menu/model boundary drift, Telegram API/config default coupling, structural update/media coupling to Telegram API transport shapes, and attachment coupling to queue/inbound media/Telegram API helpers as domains keep evolving
 - Do not reintroduce shared bucket domains such as `lib/constants.ts`, `lib/types.ts`, `lib/globals.ts`, or broad global-augmentation files; constants, registry keys, state interfaces, and concrete transport shapes should stay in their owning domains, and `index.ts` should not grow new shared magic constants
 - Keep remaining `index.ts` code focused on cross-domain adapter wiring that needs live extension state, pi callbacks, Telegram API ports, or status updates; do not extract one-off closures solely to reduce line count
 - Domain-specific queue planning, preview transport/controller behavior, rendering, Telegram API transport, menu state, and command behavior should stay in their owning domains instead of moving to `/lib/runtime.ts` solely to shrink `index.ts`
@@ -153,12 +153,13 @@ The canonical detailed ownership map lives in [`docs/architecture.md`](./docs/ar
 - Unknown callback data not owned by pi-telegram prefixes (`compact:`, `tgbtn:`, `menu:`, `model:`, `thinking:`, `status:`, `queue:`, `section:`, `settings:`) may be forwarded as `[callback] <data>` after built-in handlers decline it; update-handler extensions should follow `docs/callback-namespaces.md` and must not poll the same bot independently
 - Command templates stay compact and shell-free: no `command` field, no shell execution, inline defaults are allowed as `{name=default}`, `template` may be a string or an ordered composition array, only `args`/`defaults` inherit into leaves, top-level `timeout` wraps composed sequences, stdout pipes to the next step's stdin by default, and multi-step work should use `template: [...]` rather than provider-specific fields; `pipe` is only a legacy local alias
 - Command-template documentation examples should use portable executable placeholders such as `/path/to/stt` and `/path/to/tts`, not host-local skill paths or machine-specific install locations
+- Abstract pi-telegram docs and README examples must not leak real companion-extension identities into generic provider ids, runtime-event categories, or sample code. Use neutral ids such as `@scope/voice-provider/tts` and reserve real companion names for explicit companion-extension lists or case-study references.
 
 ## 9. Extension Sections Conventions
 
 - `Section identity`: use the same identity-key rules as the Extension Locks Standard (`package.json/name` → canonical id); no separate `owner` field
 - `Token mapping`: Telegram's 64-byte `callback_data` limit forces compact numeric tokens (`section:0:action:payload`). Section authors never hand-roll `section:` strings — use `ctx.callbackData(action, payload?)`
-- `Navigation hierarchy`: Back buttons are auto-prepended by `ctx.edit()` / `ctx.open()`. Root views use `⬆️ Main menu` → `menu:back`. Nested views from `handleCallback` use `⬆️ Back` → `section:<token>:open`. Settings views use `⬆️ Back` → `settings:list`
+- `Navigation hierarchy`: Back buttons are auto-prepended by `ctx.edit()` only. Root views use `⬆️ Main menu` → `menu:back`. Nested views from `handleCallback` use `⬆️ Back` → `section:<token>:open`. Settings views use `⬆️ Back` → `settings:list`. `ctx.open()` sends standalone chat messages without auto-navigation
 - `Context ports`: sections receive `TelegramSectionContext` / `TelegramSectionCallbackContext` with `answerCallback`, `edit`, `open`, `enqueuePrompt`, and `callbackData`. No filesystem access, no raw bot clients, no second polling loop
 - `Settings indicators`: use `settings.getLabel()` for dynamic status rows in the Settings submenu (e.g., `🟢`/`⚫️` based on internal state). Called on every Settings list render
 - `Handler fallback`: `section.handleCallback` runs first; if it returns `"pass"` and `settings.handleCallback` exists, the settings handler runs with a fresh context carrying `backCallback="settings:list"`
@@ -168,7 +169,7 @@ The canonical detailed ownership map lives in [`docs/architecture.md`](./docs/ar
 - `Section separators`: extension-injected main-menu rows appear before the **⚙️ Settings** row. Extension settings rows appear before built-in Proactive push controls
 - `Model button format`: use `provider/ModelId` format (e.g., `anthropic/claude-sonnet-4-5`) across model menu buttons and status row. The compact `provider/id` form is canonical
 - `Section domain ownership`: `lib/sections.ts` owns the registry, token mapping, callback dispatch, and context building. `lib/menu.ts` dispatches `section:` callbacks before built-in handling. `lib/menu-status.ts` injects section rows. `lib/menu-settings.ts` injects settings rows and passes `sectionRegistry` through callback deps
-- `Callback routing order`: button actions → queue menu → settings menu → section callbacks → built-in menu handling → `[callback]` fallback. Settings menu callbacks always pass `sectionRegistry` to `updateTelegramSettingsMenuMessage` and `handleTelegramSettingsMenuCallbackAction`
+- `Callback routing order`: button actions → compact confirmations → queue menu → settings menu → section callbacks → built-in menu handling → `[callback]` fallback. Settings menu callbacks always pass `sectionRegistry` to `updateTelegramSettingsMenuMessage` and `handleTelegramSettingsMenuCallbackAction`
 
 ## 9. Pre-Task Preparation Protocol
 

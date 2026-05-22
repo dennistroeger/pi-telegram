@@ -2137,6 +2137,227 @@ test("Extension runtime switches model in flight and dispatches a continuation t
   }
 });
 
+test("Extension runtime preserves long-session queue through abort, next, and model switch", async () => {
+  const telegramConfig = await createRuntimeTelegramConfigFixture();
+  const runtimeEvents: string[] = [];
+  const modelA = createRuntimeModel("openai", "gpt-a", true);
+  const modelB = createRuntimeModel("anthropic", "claude-b", false);
+  let idle = true;
+  let abortCount = 0;
+  const setModels: Array<string> = [];
+  const updates = Array.from({ length: 5 }, () =>
+    createRuntimeDeferredResponse(),
+  );
+  const { handlers, commands, pi } = createRuntimePiHarness({
+    sendUserMessage: (content) => {
+      recordRuntimeDispatchEvent(runtimeEvents, content);
+    },
+    setModel: async (model) => {
+      setModels.push(`${model.provider}/${model.id}`);
+      return true;
+    },
+    setThinkingLevel: () => {},
+  });
+  let getUpdatesCalls = 0;
+  let nextMessageId = 100;
+  const callbackAnswers: string[] = [];
+  const restoreFetch = setRuntimeTestFetch(async (input, init) => {
+    const method = getRuntimeTelegramApiMethod(input);
+    const body = parseJsonRequestBody(init);
+    if (method === "deleteWebhook")
+      return createRuntimeTelegramApiResponse(true);
+    if (method === "getUpdates") {
+      getUpdatesCalls += 1;
+      if (getUpdatesCalls === 1) {
+        return createRuntimeTelegramApiResponse([
+          {
+            _: "other",
+            update_id: 1,
+            message: {
+              message_id: 70,
+              chat: { id: 99, type: "private" },
+              from: { id: 77, is_bot: false, first_name: "Test" },
+              text: "/model",
+            },
+          },
+        ]);
+      }
+      const update = updates[getUpdatesCalls - 2];
+      if (update) return update.promise;
+      throw new DOMException("stop", "AbortError");
+    }
+    if (method === "sendMessage") {
+      runtimeEvents.push(`send:${String(body?.text ?? "")}`);
+      return createRuntimeTelegramApiResponse({ message_id: nextMessageId++ });
+    }
+    if (method === "editMessageText") {
+      runtimeEvents.push(`edit:${String(body?.text ?? "")}`);
+      return createRuntimeTelegramApiResponse(true);
+    }
+    if (method === "answerCallbackQuery") {
+      callbackAnswers.push(String(body?.text ?? ""));
+      return createRuntimeTelegramApiResponse(true);
+    }
+    if (method === "sendChatAction")
+      return createRuntimeTelegramApiResponse(true);
+    throw new Error(`Unexpected Telegram API method: ${method}`);
+  });
+  try {
+    await telegramConfig.write({
+      botToken: "123:abc",
+      allowedUserId: 77,
+      lastUpdateId: 0,
+    });
+    (await getRuntimeTelegramExtension())(pi);
+    const ctx = createRuntimeModelContext({
+      model: modelA,
+      availableModels: [modelA, modelB],
+      isIdle: () => idle,
+      abort: () => {
+        abortCount += 1;
+      },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    await commands.get("telegram-connect")?.handler("", ctx);
+    await waitForCondition(() =>
+      runtimeEvents.includes("send:<b>🤖 Choose a model:</b>"),
+    );
+    updates[0].resolve(
+      createRuntimeTelegramApiResponse([
+        {
+          _: "other",
+          update_id: 2,
+          message: {
+            message_id: 71,
+            chat: { id: 99, type: "private" },
+            from: { id: 77, is_bot: false, first_name: "Test" },
+            text: "first long-session request",
+          },
+        },
+      ]),
+    );
+    await waitForCondition(() =>
+      runtimeEvents.includes("dispatch:[telegram] first long-session request"),
+    );
+    idle = false;
+    await handlers.get("agent_start")?.({}, ctx);
+    updates[1].resolve(
+      createRuntimeTelegramApiResponse([
+        {
+          _: "other",
+          update_id: 3,
+          message: {
+            message_id: 72,
+            chat: { id: 99, type: "private" },
+            from: { id: 77, is_bot: false, first_name: "Test" },
+            text: "queued after abort",
+          },
+        },
+      ]),
+    );
+    await waitForCondition(() => getUpdatesCalls >= 4);
+    assert.equal(
+      runtimeEvents.includes("dispatch:[telegram] queued after abort"),
+      false,
+    );
+    updates[2].resolve(
+      createRuntimeTelegramApiResponse([
+        {
+          _: "other",
+          update_id: 4,
+          message: {
+            message_id: 73,
+            chat: { id: 99, type: "private" },
+            from: { id: 77, is_bot: false, first_name: "Test" },
+            text: "/abort",
+          },
+        },
+      ]),
+    );
+    await waitForCondition(() => abortCount === 1);
+    idle = true;
+    await handlers.get("agent_end")?.(
+      {
+        messages: [
+          {
+            role: "assistant",
+            stopReason: "aborted",
+            content: [{ type: "text", text: "" }],
+          },
+        ],
+      },
+      ctx,
+    );
+    assert.equal(
+      runtimeEvents.includes("dispatch:[telegram] queued after abort"),
+      false,
+    );
+    updates[3].resolve(
+      createRuntimeTelegramApiResponse([
+        {
+          _: "other",
+          update_id: 5,
+          message: {
+            message_id: 74,
+            chat: { id: 99, type: "private" },
+            from: { id: 77, is_bot: false, first_name: "Test" },
+            text: "/next",
+          },
+        },
+      ]),
+    );
+    await waitForCondition(() =>
+      runtimeEvents.includes("dispatch:[telegram] queued after abort"),
+    );
+    idle = false;
+    await handlers.get("agent_start")?.({}, ctx);
+    updates[4].resolve(
+      createRuntimeTelegramApiResponse([
+        {
+          _: "other",
+          update_id: 6,
+          callback_query: {
+            id: "cb-long-session",
+            from: { id: 77, is_bot: false, first_name: "Test" },
+            data: "model:pick:1",
+            message: {
+              message_id: 100,
+              chat: { id: 99, type: "private" },
+            },
+          },
+        },
+      ]),
+    );
+    await waitForCondition(() => abortCount === 2);
+    assert.deepEqual(setModels, ["anthropic/claude-b"]);
+    assert.equal(
+      callbackAnswers.includes("Switching to claude-b and continuing…"),
+      true,
+    );
+    idle = true;
+    await handlers.get("agent_end")?.(
+      {
+        messages: [
+          {
+            role: "assistant",
+            stopReason: "aborted",
+            content: [{ type: "text", text: "" }],
+          },
+        ],
+      },
+      ctx,
+    );
+    assert.equal(
+      runtimeEvents.includes("dispatch:[telegram] queued after abort"),
+      true,
+    );
+    await handlers.get("session_shutdown")?.({}, ctx);
+  } finally {
+    restoreFetch();
+    await telegramConfig.restore();
+  }
+});
+
 test("Extension runtime delays model-switch abort until the active tool finishes", async () => {
   const telegramConfig = await createRuntimeTelegramConfigFixture();
   const runtimeEvents: string[] = [];

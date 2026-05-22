@@ -11,6 +11,7 @@ import {
   execCommandTemplate,
   expandCommandTemplateConfigs,
   getCommandTemplateWarnings,
+  shouldRunCommandTemplateNode,
   splitCommandTemplate,
 } from "../lib/command-templates.ts";
 
@@ -54,7 +55,6 @@ test("Command template arrays inherit only top-level args and defaults", () => {
       args: ["text", "lang", "mp3", "ogg"],
       defaults: { lang: "en" },
       retry: undefined,
-      critical: undefined,
     },
     {
       template: "ffmpeg -i {mp3} {ogg} {codec}",
@@ -62,23 +62,22 @@ test("Command template arrays inherit only top-level args and defaults", () => {
       defaults: { lang: "en", codec: "opus" },
       timeout: 123,
       retry: undefined,
-      critical: undefined,
     },
   ]);
 });
 
-test("Template composition expansion preserves retry and critical on step objects", () => {
+test("Template composition expansion preserves retry and failure scope on step objects", () => {
   const steps = expandCommandTemplateConfigs({
     template: [
       "scan --path {dir}",
       {
         template: "lint --strict {dir}",
         retry: 3,
-        critical: true,
+        failure: "root",
       },
       {
         template: "deploy {dir}",
-        critical: true,
+        failure: "root",
         timeout: 60000,
       },
     ],
@@ -91,20 +90,19 @@ test("Template composition expansion preserves retry and critical on step object
       args: ["dir"],
       defaults: { dir: "./src" },
       retry: undefined,
-      critical: undefined,
     },
     {
       template: "lint --strict {dir}",
       args: ["dir"],
       defaults: { dir: "./src" },
       retry: 3,
-      critical: true,
+      failure: "root",
     },
     {
       template: "deploy {dir}",
       args: ["dir"],
       defaults: { dir: "./src" },
-      critical: true,
+      failure: "root",
       timeout: 60000,
       retry: undefined,
     },
@@ -180,6 +178,49 @@ test("Command templates resolve defaults and inline placeholder defaults", () =>
     command: "/work/tts",
     args: ["--text", "hello world", "--lang", "ru", "--rate", "+30%"],
   });
+});
+
+test("Command templates resolve modern placeholder operators and filter empty args", () => {
+  assert.deepEqual(
+    buildCommandTemplateInvocation(
+      "tool --model {model??auto} {enabled?--enabled:} {missing?--missing:}",
+      { enabled: true },
+      "/work",
+    ),
+    { command: "tool", args: ["--model", "auto", "--enabled"] },
+  );
+});
+
+test("Command templates resolve inherited default references and when guards", () => {
+  const steps = expandCommandTemplateConfigs({
+    defaults: { base: "parent" },
+    template: [{ template: "echo {child}", defaults: { child: "{base}" } }],
+  });
+  assert.deepEqual(steps[0]?.defaults, { base: "parent", child: "parent" });
+  assert.equal(shouldRunCommandTemplateNode("enabled", { enabled: "yes" }), true);
+  assert.equal(shouldRunCommandTemplateNode("!enabled", { enabled: "no" }), true);
+  assert.equal(shouldRunCommandTemplateNode("{enabled?yes:}", { enabled: false }), false);
+});
+
+test("Command template arrays preserve modern control fields", () => {
+  const steps = expandCommandTemplateConfigs({
+    parallel: true,
+    when: "enabled",
+    timeout: "{timeout}",
+    delay: "{delay}",
+    retry: "{retry}",
+    template: "run",
+  });
+  assert.deepEqual(steps, [
+    {
+      parallel: true,
+      when: "enabled",
+      timeout: "{timeout}",
+      delay: "{delay}",
+      retry: "{retry}",
+      template: "run",
+    },
+  ]);
 });
 
 test("Command templates resolve array-index placeholders and recursive defaults", () => {

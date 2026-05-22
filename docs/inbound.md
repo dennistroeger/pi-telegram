@@ -49,7 +49,7 @@ Legacy `telegram.json` files may still define `attachmentHandlers` for media/fil
 
 At runtime, `attachmentHandlers` is appended after `inboundHandlers`. Existing configs continue to work, while new configs should use `inboundHandlers`.
 
-Handlers match by optional `type`, `mime`, or `match`. `mime` and `type` are independent selectors: if `mime` is present, `type` is not required. Wildcards such as `audio/*` or `text/*` are accepted. Each matching handler must provide `template`; a string is one command, and an array is ordered composition. Top-level `args` and `defaults` apply to composed steps unless a step defines private values. The command-template default timeout applies automatically. Legacy configs may still use `pipe` as a local alias.
+Handlers match by optional `type`, `mime`, or `match`. `mime` and `type` are independent selectors: if `mime` is present, `type` is not required. Wildcards such as `audio/*` or `text/*` are accepted. Each matching handler must provide `template`; a string is one command, and an array is ordered composition. Top-level `args` and `defaults` apply to composed steps unless a step defines private values. The command-template default timeout applies automatically. Use `template: [...]` for composition; the old local `pipe` alias is removed in 0.13.0.
 
 `defaults` may provide additional placeholder values such as `{lang}` or `{model}`. `args` is only a string-array declaration of supported placeholders; defaults belong in `defaults` or inline placeholders such as `{lang=ru}`. Examples prefer explicit flag-style CLIs such as `--file {file}` and `--lang {lang=ru}` for readability, but positional forms such as `/path/to/stt {file} {lang=ru} {model=voxtral-mini-latest}` are equally valid when the target script supports them.
 
@@ -90,7 +90,7 @@ If a matching handler fails with a non-zero exit code, the runtime records diagn
 
 Extensions can register programmatic inbound handlers with `registerTelegramInboundHandler(kind, handler)` from `@llblab/pi-telegram/inbound`. This is the code-level counterpart to configured `inboundHandlers`; use it for extension-owned transformations that are not voice-specific.
 
-Voice extensions can register STT providers with `registerTelegramVoiceTranscriptionProvider()` from `@llblab/pi-telegram/voice`. This is the zero-config extension path for voice/audio input: an extension such as `pi-xai-voice` can transcribe Telegram voice notes without requiring the operator to write an `inboundHandlers` command template.
+Voice extensions can register STT providers with `registerTelegramVoiceTranscriptionProvider()` from `@llblab/pi-telegram/voice`. This is the zero-config extension path for voice/audio input: a companion extension can transcribe Telegram voice notes without requiring the operator to write an `inboundHandlers` command template.
 
 Priority stays explicit and predictable:
 

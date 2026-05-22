@@ -18,7 +18,7 @@ An outbound handler is selected by `type`. Text replies and assistant markup map
 
 The voice pipeline is detailed below: configured `type: "voice"` handlers first, then programmatic handlers, then registered synthesis providers.
 
-Configured text handlers provide `template`. A string is one command; an array is ordered composition. Top-level `args` and `defaults` apply to all composed steps unless a step defines private values. The command-template default timeout applies automatically. Legacy configs may still use `pipe`, but `template: [...]` is the preferred standard shape.
+Configured text handlers provide `template`. A string is one command; an array is ordered composition. Top-level `args` and `defaults` apply to all composed steps unless a step defines private values. The command-template default timeout applies automatically. Use `template: [...]` for composition; the old local `pipe` alias is removed in 0.13.0.
 
 ## Text Handler Config
 

@@ -143,30 +143,10 @@ test("Project source imports stay acyclic", () => {
   const graph = buildProjectImportGraph(getProjectSourceFiles());
   const cycles = findImportCycles(graph);
 
-  // Temporary voice-provider cleanup allowance: keep known voice-domain cycles
-  // visible while still failing unrelated new cycles.
-  const voiceRelatedCycles = cycles.filter((c) => {
-    const hasVoice = c.some((m) => m.includes("voice.ts"));
-    const hasOutbound = c.some((m) => m.includes("outbound.ts"));
-    const hasTurns = c.some((m) => m.includes("turns.ts"));
-    const hasQueue = c.some((m) => m.includes("queue.ts"));
-
-    // Deliberate voice split
-    if (hasVoice && hasOutbound) return true;
-    // Type cycles involving voice modules (acceptable for now)
-    if ((hasVoice || hasOutbound) && (hasTurns || hasQueue) && c.length <= 3)
-      return true;
-
-    return false;
-  });
-
-  const otherCycles = cycles.filter((c) => !voiceRelatedCycles.includes(c));
-
   assert.deepEqual(
-    otherCycles,
+    cycles,
     [],
-    "Non-Voice cycles found:\n" +
-      otherCycles.map((c) => c.join(" -> ")).join("\n"),
+    "Import cycles found:\n" + cycles.map((c) => c.join(" -> ")).join("\n"),
   );
 });
 
@@ -225,7 +205,13 @@ test("Pi SDK imports stay centralized in the pi adapter", () => {
   const directSdkImportFiles = getProjectSourceFiles().filter((file) => {
     if (file === normalize(join("lib", "pi.ts"))) return false;
     const source = readFileSync(join(PROJECT_ROOT, file), "utf8");
-    return source.includes("@mariozechner/pi-coding-agent");
+    const piSdkPackages = [
+      "@mariozechner/pi-coding-agent",
+      "@earendil-works/pi-coding-agent",
+      "@earendil-works/pi-agent-core",
+      "@earendil-works/pi-ai",
+    ];
+    return piSdkPackages.some((packageName) => source.includes(packageName));
   });
   assert.deepEqual(directSdkImportFiles, []);
 });
@@ -287,8 +273,8 @@ test("Menu domain stays on structural ports and does not re-export model", () =>
   );
 });
 
-test("API transport stays decoupled from persisted config defaults", () => {
-  const apiImports = getImportSpecifiers(join("lib", "api.ts"));
+test("Telegram API transport stays decoupled from persisted config defaults", () => {
+  const apiImports = getImportSpecifiers(join("lib", "telegram-api.ts"));
   assert.equal(apiImports.includes("./config.ts"), false);
 });
 
@@ -297,7 +283,7 @@ test("Structural update and media domains stay decoupled from concrete API trans
   const apiImportsByFile = Object.fromEntries(
     structuralFiles.map((file) => [
       join("lib", file),
-      getImportSpecifiers(join("lib", file)).includes("./api.ts"),
+      getImportSpecifiers(join("lib", file)).includes("./telegram-api.ts"),
     ]),
   );
   assert.deepEqual(apiImportsByFile, {
@@ -312,5 +298,5 @@ test("Outbound attachment delivery stays decoupled from queue, inbound media, an
   );
   assert.equal(attachmentImports.includes("./queue.ts"), false);
   assert.equal(attachmentImports.includes("./media.ts"), false);
-  assert.equal(attachmentImports.includes("./api.ts"), false);
+  assert.equal(attachmentImports.includes("./telegram-api.ts"), false);
 });

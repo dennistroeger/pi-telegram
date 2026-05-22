@@ -168,7 +168,7 @@ test("Text group helper ignores commands, bots, media groups, and non-contiguous
   assert.equal(
     TextGroups.queueTelegramTextGroupMessage({
       ...base,
-      message: createMessage(15, "tail"),
+      message: createMessage(30, "tail"),
     }),
     false,
   );

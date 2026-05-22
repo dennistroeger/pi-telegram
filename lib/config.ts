@@ -30,9 +30,8 @@ export type TelegramOutboundCommandTemplateConfig =
 export interface TelegramOutboundHandlerConfig extends CommandTemplateObjectConfig {
   type?: string;
   match?: string | string[];
-  pipe?: TelegramOutboundCommandTemplateConfig[];
   output?: string;
-  timeout?: number;
+  timeout?: number | string;
 }
 
 export type TelegramTimeMode = "hidden" | "always" | "interval";

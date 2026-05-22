@@ -4,7 +4,7 @@
 
 **Telegram runtime adapter for π.**
 
-`pi-telegram` turns a private Telegram DM into a session-local operator console for π. It admits work, preserves context, streams readable replies, keeps busy sessions usable through queues, lets other extensions share one bot, and turns assistant-authored intent into native Telegram artifacts. In `0.11.0`, it also becomes a voice-provider platform: companion extensions can supply Telegram transcription and synthesis providers while `pi-telegram` keeps ownership of transport, queueing, and reply policy.
+`pi-telegram` turns a private Telegram DM into a session-local operator console for π. It admits work, preserves context, streams readable replies, keeps busy sessions usable through queues, lets other extensions share one bot, and turns assistant-authored intent into native Telegram artifacts. It is also a voice-provider platform: companion extensions can supply Telegram transcription and synthesis providers while `pi-telegram` keeps ownership of transport, queueing, and reply policy.
 
 This repository is an actively maintained fork of [`badlogic/pi-telegram`](https://github.com/badlogic/pi-telegram). It started from upstream commit [`cb34008`](https://github.com/badlogic/pi-telegram/commit/cb34008460b6c1ca036d92322f69d87f626be0fc) and has since diverged substantially.
 
@@ -199,39 +199,9 @@ If `telegram.json` explicitly sets a valid `voice.replyMode`, prompts include co
 
 In `mirror` and `always` modes, the bridge transparently intercepts agent text responses and routes them through the outbound voice pipeline. Configured `outboundHandlers` with `type: "voice"` run first in their configured order; zero-config registered synthesis providers run after them as progressive fallbacks. If several synthesis providers are installed, they are tried in registration order and the first one that returns a valid `.ogg`/`.opus` artifact handles the reply; `undefined`, errors, or invalid output fall through to the next provider. If every voice generator fails, the bridge falls back to sending the text reply instead.
 
-Voice synthesis provider extensions (e.g. `pi-xai-voice`) register a TTS backend at runtime through public API domain subpaths:
+Voice synthesis provider extensions register TTS backends at runtime through public API domain subpaths. Multiple synthesis providers can be registered; stable provider registrations pass a durable abstract id owned by the companion extension, such as `"@scope/voice-provider/tts"`. The bridge tries configured `type: "voice"` handlers first, then programmatic handlers, then registered synthesis providers in registration order until one succeeds. Providers and handlers receive the text to synthesize and optional `lang`/`rate` hints from `<!-- telegram_voice -->` markup or the automatic interception path. Voice delivery must produce `.ogg` or `.opus` files.
 
-```typescript
-import { registerTelegramVoiceSynthesisProvider } from "@llblab/pi-telegram/voice";
-import { recordTelegramRuntimeEvent } from "@llblab/pi-telegram/outbound";
-
-// Return path only (backward compatible)
-const dispose = registerTelegramVoiceSynthesisProvider(
-  async (text, { lang, rate }) => {
-    const path = await myTTS(text, { language: lang });
-    return path; // must be .ogg or .opus
-  },
-  { id: "pi-xai-voice/tts" },
-);
-
-// Return path + transcript caption
-const dispose2 = registerTelegramVoiceSynthesisProvider(
-  async (text, { lang, rate }) => {
-    const rewritten = rewriteWithSpeechTags(text); // internal TTS optimization
-    const path = await myTTS(rewritten, { language: lang });
-    return { audioPath: path, transcriptText: text };
-  },
-  { id: "pi-xai-voice/tts-with-transcript" },
-);
-
-// Surface diagnostics in /telegram-status
-recordTelegramRuntimeEvent("xai-voice", new Error("TTS complete"), {
-  phase: "tts",
-  durationMs: 1200,
-});
-```
-
-Multiple synthesis providers can be registered; stable provider registrations pass a durable `id`, while omitted ids remain a compatibility path for older providers. The bridge tries configured `type: "voice"` handlers first, then programmatic handlers, then registered synthesis providers in registration order until one succeeds. Providers and handlers receive the text to synthesize and optional `lang`/`rate` hints from `<!-- telegram_voice -->` markup or the automatic interception path. Voice delivery must produce `.ogg` or `.opus` files.
+Provider code examples, transcript-caption behavior, and diagnostics patterns live in [Voice Integration](./docs/voice.md) and [Public API](./docs/public-api.md). The important boundary is: providers own TTS and any private optimization, while pi-telegram owns reply policy, prompt context, fallback ordering, and Telegram transport.
 
 ### Extension interop
 

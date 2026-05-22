@@ -4,7 +4,6 @@
  * Keeps the runtime wiring in one place while delegating reusable domain logic to /lib modules
  */
 
-import * as Api from "./lib/api.ts";
 import * as Bindings from "./lib/bindings.ts";
 import * as CommandTemplates from "./lib/command-templates.ts";
 import * as Commands from "./lib/commands.ts";
@@ -28,6 +27,7 @@ import * as Routing from "./lib/routing.ts";
 import * as Runtime from "./lib/runtime.ts";
 import * as Sections from "./lib/sections.ts";
 import * as Status from "./lib/status.ts";
+import * as TelegramApi from "./lib/telegram-api.ts";
 import * as TextGroups from "./lib/text-groups.ts";
 import * as TimeInjection from "./lib/time-injection.ts";
 import * as Updates from "./lib/updates.ts";
@@ -82,11 +82,11 @@ export default function (pi: Pi.ExtensionAPI) {
   const hasPendingMessages = Pi.hasExtensionContextPendingMessages;
   const compact = Pi.compactExtensionContext;
   const mediaGroupRuntime = Media.createTelegramMediaGroupController<
-    Api.TelegramMessage,
+    TelegramApi.TelegramMessage,
     Pi.ExtensionContext
   >();
   const textGroupRuntime = TextGroups.createTelegramTextGroupController<
-    Api.TelegramMessage,
+    TelegramApi.TelegramMessage,
     Pi.ExtensionContext
   >();
   const telegramQueueStore =
@@ -153,7 +153,7 @@ export default function (pi: Pi.ExtensionAPI) {
     answerGuestQuery,
     deleteMessage: deleteTelegramMessage,
     prepareTempDir,
-  } = Api.createDefaultTelegramBridgeApiRuntime({
+  } = TelegramApi.createDefaultTelegramBridgeApiRuntime({
     getBotToken: configStore.getBotToken,
     recordRuntimeEvent,
   });

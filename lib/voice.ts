@@ -23,6 +23,21 @@ const VOICE_SYNTHESIS_PROVIDER_REGISTRY_KEY =
 const VOICE_TRANSCRIPTION_PROVIDER_REGISTRY_KEY =
   "__piTelegramVoiceTranscriptionProviders__";
 
+let nextGeneratedVoiceSynthesisProviderId = 0;
+let nextGeneratedVoiceTranscriptionProviderId = 0;
+
+function getNextAvailableProviderId<T>(
+  registry: Map<string, T>,
+  prefix: string,
+  nextId: () => number,
+): string {
+  let id: string;
+  do {
+    id = `${prefix}-${nextId()}`;
+  } while (registry.has(id));
+  return id;
+}
+
 export type TelegramVoiceReplyMode = "mirror" | "always" | "manual";
 
 export type TelegramVoiceSynthesisProviderResult =
@@ -106,7 +121,13 @@ export function registerTelegramVoiceSynthesisProvider(
   options?: { id?: string },
 ): () => void {
   const registry = getOrCreateVoiceSynthesisProviderRegistry();
-  const id = options?.id ?? `voice-synthesis-provider-${registry.size}`;
+  const id =
+    options?.id ??
+    getNextAvailableProviderId(
+      registry,
+      "voice-synthesis-provider",
+      () => nextGeneratedVoiceSynthesisProviderId++,
+    );
   const normalized =
     typeof provider === "function"
       ? (Object.assign(
@@ -123,7 +144,7 @@ export function registerTelegramVoiceSynthesisProvider(
       : provider;
   registry.set(id, normalized);
   return () => {
-    registry.delete(id);
+    if (registry.get(id) === normalized) registry.delete(id);
   };
 }
 
@@ -168,10 +189,16 @@ export function registerTelegramVoiceTranscriptionProvider(
   options?: { id?: string },
 ): () => void {
   const registry = getOrCreateVoiceTranscriptionProviderRegistry();
-  const id = options?.id ?? `voice-transcription-provider-${registry.size}`;
+  const id =
+    options?.id ??
+    getNextAvailableProviderId(
+      registry,
+      "voice-transcription-provider",
+      () => nextGeneratedVoiceTranscriptionProviderId++,
+    );
   registry.set(id, provider);
   return () => {
-    registry.delete(id);
+    if (registry.get(id) === provider) registry.delete(id);
   };
 }
 
@@ -303,12 +330,12 @@ export function shouldSuppressPreviewForVoice(
   return !!(turn?.voiceReplyPreferred || turn?.voiceReplyRequired);
 }
 
-// --- Outbound Handler Re-Exports ---
+// --- Outbound Markup Re-Exports ---
 
 export {
-  planTelegramVoiceReply,
-  stripTelegramCommentMarkupForPreview,
-  stripTelegramCommentMarkupForDelivery,
-  stripTelegramVoiceMarkupForPreview,
   normalizeMarkdownAfterVoiceExtraction,
-} from "./outbound.ts";
+  planTelegramVoiceReply,
+  stripTelegramCommentMarkupForDelivery,
+  stripTelegramCommentMarkupForPreview,
+  stripTelegramVoiceMarkupForPreview,
+} from "./outbound-markup.ts";

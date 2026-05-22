@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import {
   createTelegramLockRuntime,
   readLocks,
   TELEGRAM_LOCK_KEY,
+  writeLocks,
 } from "../lib/locks.ts";
 
 function createTempLockPath(): { dir: string; path: string } {
@@ -51,6 +52,16 @@ test("Lock runtime acquires, refreshes, and releases its own key", () => {
     });
     assert.equal(lock.release().kind, "active-here");
     assert.deepEqual(readLocks(temp.path), {});
+  } finally {
+    rmSync(temp.dir, { recursive: true, force: true });
+  }
+});
+
+test("writeLocks writes private lock files", () => {
+  const temp = createTempLockPath();
+  try {
+    writeLocks(temp.path, { [TELEGRAM_LOCK_KEY]: { pid: 10 } });
+    assert.equal(statSync(temp.path).mode & 0o777, 0o600);
   } finally {
     rmSync(temp.dir, { recursive: true, force: true });
   }

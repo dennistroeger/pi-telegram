@@ -289,12 +289,25 @@ function formatTelegramRuntimeEvent(event: TelegramRuntimeEvent): string {
   return `${new Date(event.at).toISOString()} ${formatTelegramRuntimeEventSummary(event)}`;
 }
 
+function buildTelegramRuntimeEventSummary(events: TelegramRuntimeEvent[]): string {
+  const counts = new Map<string, number>();
+  for (const event of events) {
+    const category = formatTelegramRuntimeEventCategory(event);
+    counts.set(category, (counts.get(category) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([category, count]) => `${category}=${count}`)
+    .join(", ");
+}
+
 export function buildTelegramRuntimeEventLines(
   events: TelegramRuntimeEvent[],
 ): string[] {
   if (events.length === 0) return ["recent runtime events: none"];
   return [
     "recent runtime events:",
+    `- summary: ${buildTelegramRuntimeEventSummary(events)}`,
     ...events
       .slice()
       .reverse()

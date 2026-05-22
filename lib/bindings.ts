@@ -4,7 +4,6 @@
  * Owns pi-facing tool, command, and lifecycle hook registration for the entrypoint
  */
 
-import * as Api from "./api.ts";
 import * as CommandTemplates from "./command-templates.ts";
 import * as Commands from "./commands.ts";
 import * as Config from "./config.ts";
@@ -22,6 +21,7 @@ import * as Replies from "./replies.ts";
 import * as Runtime from "./runtime.ts";
 import * as Setup from "./setup.ts";
 import * as Status from "./status.ts";
+import * as TelegramApi from "./telegram-api.ts";
 
 type ActivePiModel = NonNullable<Pi.ExtensionContext["model"]>;
 
@@ -59,13 +59,12 @@ export function registerTelegramCommandsAndTools({
     getActiveTurn: activeTurnRuntime.get,
     recordRuntimeEvent,
   });
-
   Commands.registerTelegramBridgeCommands(pi, {
     promptForConfig: Setup.createTelegramSetupPromptRuntime({
       getConfig: configStore.get,
       setConfig: configStore.set,
       setupGuard: setup,
-      getMe: Api.fetchTelegramBotIdentity,
+      getMe: TelegramApi.fetchTelegramBotIdentity,
       persistConfig: configStore.persist,
       startPolling: lockedPollingRuntime.start,
       updateStatus,
@@ -260,7 +259,6 @@ export function registerTelegramLifecycleRuntimeHooks({
     setActiveToolExecutions: lifecycle.setActiveToolExecutions,
     triggerPendingModelSwitchAbort: modelSwitchController.triggerPendingAbort,
   });
-
   Lifecycle.setResetTransportReplyDedup(Replies.resetTransportReplyDedup);
   const agentStartWithDedupReset = Lifecycle.createAgentStartDedupHook(
     agentLifecycleHooks.onAgentStart,

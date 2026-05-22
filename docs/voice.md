@@ -1,6 +1,6 @@
 # Voice Integration
 
-Voice messages flow through an **inbound transcription → outbound voice reply** pipeline. This document describes the bridge's role in that pipeline; provider-specific mechanics (TTS/STT backends, voice IDs, languages) are owned by voice provider extensions. In `0.11.0`, this is a first-class extension surface: one companion extension can provide STT fallbacks for inbound voice/audio files and TTS fallbacks for outbound Telegram voice replies without owning a second bot polling loop.
+Voice messages flow through an **inbound transcription → outbound voice reply** pipeline. This document describes the bridge's role in that pipeline; provider-specific mechanics (TTS/STT backends, voice IDs, languages) are owned by voice provider extensions. This is a first-class extension surface: one companion extension can provide STT fallbacks for inbound voice/audio files and TTS fallbacks for outbound Telegram voice replies without owning a second bot polling loop.
 
 ## Overview
 
@@ -67,12 +67,12 @@ The reply policy itself remains a built-in pi-telegram setting (`voice.replyMode
 
 ## Outbound Voice Synthesis Provider Registration
 
-Voice synthesis provider extensions (such as `pi-xai-voice`) register themselves through `registerTelegramVoiceSynthesisProvider()`. The bridge only provides the registration seam and the actual delivery to Telegram. **The provider is fully responsible for**:
+Voice synthesis provider extensions register themselves through `registerTelegramVoiceSynthesisProvider()`. The bridge only provides the registration seam and the actual delivery to Telegram. **The provider is fully responsible for**:
 
 - Text optimisation / speech-style rewriting
 - Adding speech tags (when desired)
 - Running TTS + ffmpeg conversion to OGG/Opus
-- Deciding whether to return `transcriptText` at all (based on the user's "Send Transcript" toggle)
+- Deciding whether to return `transcriptText` at all based on the bridge-owned `voice.sendTranscript` preference when the provider has access to the current Telegram config
 - `transcriptText` (when returned) is attached by the bridge as the voice message **caption** only. Separate transcript messages are no longer sent.
 
 The bridge shows a `record_voice` action while delivering and sends the final audio with Telegram `sendVoice`. When a provider returns `transcriptText`, the bridge attaches it as the voice caption.
@@ -86,7 +86,7 @@ The provider receives the raw agent text plus optional `{ lang?, rate? }`.
 It must return one of:
 
 - `string` — path to a ready `.ogg` or `.opus` file
-- `{ audioPath: string, transcriptText?: string }` — `audioPath` must be OGG/Opus. When `transcriptText` is present it is attached as the voice message **caption**. A provider UI can expose a "Send Transcript" toggle by returning `transcriptText` only when that toggle is enabled.
+- `{ audioPath: string, transcriptText?: string }` — `audioPath` must be OGG/Opus. When `transcriptText` is present it is attached as the voice message **caption**. Providers should treat pi-telegram's `voice.sendTranscript` as the bridge-owned transcript preference instead of inventing a second reply-policy UI.
 - `undefined` — skip this text block
 
 **Important:** Providers are fully responsible for producing a clean, TTS-optimised native voice file. The bridge may also run configured outbound voice command templates for users who prefer process-boundary handlers instead of provider extensions.
@@ -124,20 +124,25 @@ Priority for outbound voice delivery is: configured `outboundHandlers` with `typ
 When the user's "Send Transcript" toggle is ON, return the clean spoken text as `transcriptText`. The bridge attaches it as the caption on the voice message. When the toggle is OFF, return only the audio path (no `transcriptText`).
 
 ```typescript
-import { registerTelegramVoiceSynthesisProvider } from "@llblab/pi-telegram/voice";
+import {
+  getTelegramVoiceSendTranscript,
+  registerTelegramVoiceSynthesisProvider,
+} from "@llblab/pi-telegram/voice";
 
 registerTelegramVoiceSynthesisProvider(
   async (text, options) => {
     const rewritten = rewriteWithSpeechTags(text);
     const audioPath = await myTTS(rewritten, { language: options?.lang });
-    const sendTranscript = getUserSendTranscriptPreference(); // from your UI + telegram.json
+    const sendTranscript = getTelegramVoiceSendTranscript(
+      getCurrentTelegramConfigView(),
+    );
     return sendTranscript ? { audioPath, transcriptText: text } : { audioPath };
   },
   { id: "my-voice-provider/tts" },
 );
 ```
 
-The bridge never sends a separate transcript message. Caption-only is the "ON" behavior.
+`getCurrentTelegramConfigView()` represents whatever current `TelegramConfig` view your extension already owns or receives; pi-telegram does not require providers to read config directly. The bridge never sends a separate transcript message. Caption-only is the "ON" behavior.
 
 ### Surfacing provider diagnostics
 
@@ -146,7 +151,7 @@ Voice provider extensions can record runtime events that appear in `/telegram-st
 ```typescript
 import { recordTelegramRuntimeEvent } from "@llblab/pi-telegram/outbound";
 
-recordTelegramRuntimeEvent("xai-voice", new Error("TTS failed"), {
+recordTelegramRuntimeEvent("voice-provider", new Error("TTS failed"), {
   phase: "tts",
   text: text.slice(0, 50),
 });

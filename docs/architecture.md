@@ -46,7 +46,8 @@ The repository uses a **Flat Domain DAG**:
 - `sections`: Telegram menu-section registry, opaque section callback tokens, render/callback dispatch, safe section ports, and diagnostics.
 - `keyboard`: shared inline-keyboard reply-markup shape only; feature domains own labels, callback data, and behavior.
 - `preview` / `replies` / `rendering`: streaming preview lifecycle, final reply delivery, reply parameters, Telegram HTML rendering, chunking, and stable preview snapshots.
-- `outbound`: outbound text transformations, assistant-authored action comments, voice/button artifacts, and generated callback actions.
+- `outbound-markup`: top-level assistant action comment parsing, attribute parsing, voice reply planning, and preview/delivery stripping.
+- `outbound`: outbound text transformations, voice/button artifact delivery, and generated callback actions.
 - `outbound-attachments`: `telegram_attach`, queued outbound files, stat/limit checks, and photo/document delivery classification.
 - `status`: status bar/status-message rendering, queue-lane summaries, redacted event ring, and grouped diagnostics.
 - `lifecycle` / `prompts` / `prompt-templates` / `pi`: π hook registration, Telegram prompt guidance, prompt-template discovery/expansion, and centralized direct π SDK imports.

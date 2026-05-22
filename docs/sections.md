@@ -197,8 +197,8 @@ The token is an implementation detail. Section authors **never** write `section:
 4. Compact confirmation callbacks (`compact:*`)
 5. Queue menu callbacks (`queue:*`)
 6. Settings menu callbacks (`settings:*`)
-7. Built-in menu callbacks (`menu:*`, `model:*`, `thinking:*`, `status:*`)
-8. Section callbacks (`section:*`) — dispatched before step 7's full handler
+7. Section callbacks (`section:*`)
+8. Built-in menu callbacks (`menu:*`, `model:*`, `thinking:*`, `status:*`)
 9. Unknown callbacks fall back to `[callback]` prompt text
 
 ### Handler return values
@@ -226,14 +226,14 @@ Section errors are caught and surfaced as popup text. No unhandled exceptions le
 
 ## 8. Navigation Hierarchy
 
-`ctx.edit()` and `ctx.open()` automatically prepend a Back row. The Back target depends on the navigation level:
+`ctx.edit()` automatically prepends a Back row for menu-bound views. The Back target depends on the navigation level:
 
 - Section root (from main menu): `⬆️ Main menu` → `menu:back`
 - Section sub-view (`ctx.edit()` in handler): `⬆️ Back` → `section:<token>:open`
 - Settings root (from Settings list): `⬆️ Back` → `settings:list`
 - Settings sub-view (`ctx.edit()` in settings handler): `⬆️ Back` → `settings:list`
 
-Section authors do not need to manage the Back button — it is added automatically and deduplicated when already present.
+Section authors do not need to manage the Back button for `ctx.edit()` — it is added automatically and deduplicated when already present. `ctx.open()` sends a standalone chat message and does not prepend a Back row.
 
 ```
 Main menu
@@ -257,7 +257,7 @@ interface TelegramSectionContext {
   answerCallback(text?: string): Promise<void>;
   /** Edit the current message (auto-prepends Back row) */
   edit(view: TelegramSectionView): Promise<void>;
-  /** Send a new message (auto-prepends Back row) */
+  /** Send a standalone chat message without auto-navigation */
   open(view: TelegramSectionView): Promise<void>;
   /** Enqueue a plain-text prompt turn */
   enqueuePrompt(prompt: string): Promise<void>;

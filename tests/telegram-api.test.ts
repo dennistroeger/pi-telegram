@@ -9,6 +9,7 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  stat,
   utimes,
   writeFile,
 } from "node:fs/promises";
@@ -32,7 +33,7 @@ import {
   prepareTelegramTempDir,
   TELEGRAM_FILE_MAX_BYTES,
   type TelegramApiClient,
-} from "../lib/api.ts";
+} from "../lib/telegram-api.ts";
 
 function createApiResponseBody(result: unknown): { ok: true; result: unknown } {
   return { ok: true, result };
@@ -177,6 +178,7 @@ test("Telegram temp preparation creates the directory and removes stale files", 
   );
   const tempDir = join(parentDir, "nested", "telegram");
   assert.equal(await prepareTelegramTempDir(tempDir, 5_000), 0);
+  assert.equal((await stat(tempDir)).mode & 0o777, 0o700);
   const oldFile = join(tempDir, "old.txt");
   await writeFile(oldFile, "old", "utf8");
   await utimes(oldFile, new Date(1_000), new Date(1_000));
@@ -311,6 +313,8 @@ test("Telegram file downloads use unique sanitized temp file names", async () =>
     );
     assert.match(path, /[0-9a-f-]{36}-bad_name_\.txt$/);
     assert.equal(await readFile(path, "utf8"), "hello");
+    assert.equal((await stat(tempDir)).mode & 0o777, 0o700);
+    assert.equal((await stat(path)).mode & 0o777, 0o600);
   } finally {
     restoreFetch();
   }

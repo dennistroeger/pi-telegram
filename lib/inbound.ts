@@ -11,6 +11,7 @@ import {
   buildCommandTemplateInvocation,
   expandCommandTemplateConfigs,
   normalizeCommandTemplateConfig,
+  substituteCommandTemplateToken,
   type CommandTemplateConfig,
   type CommandTemplateObjectConfig,
 } from "./command-templates.ts";
@@ -28,10 +29,9 @@ export interface TelegramInboundHandlerConfig {
   mime?: string | string[];
   type?: string | string[];
   template?: string | TelegramInboundCommandTemplateConfig[];
-  pipe?: TelegramInboundCommandTemplateConfig[];
   args?: string[];
   defaults?: Record<string, unknown>;
-  timeout?: number;
+  timeout?: number | string;
 }
 
 export interface TelegramInboundHandlerFile {
@@ -62,6 +62,7 @@ export interface TelegramInboundHandlerExecOptions {
   timeout?: number;
   signal?: AbortSignal;
   stdin?: string;
+  retry?: number;
 }
 
 export interface TelegramInboundHandlerExecResult {
@@ -322,13 +323,28 @@ export function buildTelegramInboundHandlerInvocation(
   );
 }
 
+function resolveTelegramInboundNumericControlField(
+  value: number | string | undefined,
+  values: Record<string, unknown>,
+  label: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  const resolved =
+    typeof value === "string"
+      ? substituteCommandTemplateToken(value, values, label)
+      : value;
+  if (resolved === "") return undefined;
+  const numeric = Number(resolved);
+  if (!Number.isFinite(numeric) || numeric < 0)
+    throw new Error(`Command template ${label} must be a non-negative number.`);
+  return numeric;
+}
+
 function getTelegramInboundHandlerConfiguredTimeout(
   handler: TelegramInboundCommandTemplateConfig,
 ): number | undefined {
   const timeout = typeof handler === "string" ? undefined : handler.timeout;
-  return typeof timeout === "number" && Number.isFinite(timeout) && timeout > 0
-    ? timeout
-    : undefined;
+  return resolveTelegramInboundNumericControlField(timeout, {}, "timeout");
 }
 
 function getTelegramInboundHandlerTimeout(
@@ -374,8 +390,7 @@ function getTelegramInboundCompositionStepTimeout(
 function getTelegramInboundHandlerKind(
   handler: TelegramInboundHandlerConfig,
 ): string {
-  if (Array.isArray(handler.template) || handler.pipe?.length)
-    return "composition";
+  if (Array.isArray(handler.template)) return "composition";
   if (handler.template) return "template";
   return "unknown";
 }
@@ -410,7 +425,7 @@ async function executeTelegramInboundHandlerInvocation(
     cwd,
     timeout,
     ...(typeof handler === "object" && handler.retry !== undefined
-      ? { retry: handler.retry }
+      ? { retry: resolveTelegramInboundNumericControlField(handler.retry, {}, "retry") }
       : {}),
     ...(stdin !== undefined ? { stdin } : {}),
   });
@@ -426,12 +441,6 @@ function getTelegramInboundHandlerCompositionSteps(
     return expandCommandTemplateConfigs(
       handler,
     ) as TelegramInboundCommandTemplateConfig[];
-  }
-  if (handler.pipe?.length) {
-    return expandCommandTemplateConfigs({
-      ...handler,
-      template: handler.pipe,
-    }) as TelegramInboundCommandTemplateConfig[];
   }
   return [];
 }
@@ -490,7 +499,7 @@ async function executeTelegramTextHandlerInvocation(
     timeout,
     stdin: text,
     ...(typeof handler === "object" && handler.retry !== undefined
-      ? { retry: handler.retry }
+      ? { retry: resolveTelegramInboundNumericControlField(handler.retry, {}, "retry") }
       : {}),
   });
   if (result.code !== 0)
@@ -524,7 +533,7 @@ async function executeTelegramTextHandler(
           : getTelegramInboundCompositionStepTimeout(handler, step, startedAt),
       );
     } catch (error) {
-      if (typeof step === "object" && step.critical) throw error;
+      if (typeof step === "object" && step.failure === "root") throw error;
       output = "";
     }
     if (index > 0 && !output) output = text;
@@ -682,7 +691,7 @@ async function executeTelegramInboundHandler(
         index === 0 ? undefined : output,
       );
     } catch (error) {
-      if (typeof step === "object" && step.critical) throw error;
+      if (typeof step === "object" && step.failure === "root") throw error;
       output = "";
     }
   }

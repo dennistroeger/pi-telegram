@@ -125,7 +125,10 @@ export function writeLocks(path: string, locks: Record<string, unknown>): void {
   mkdirSync(dirname(path), { recursive: true });
   const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
   try {
-    writeFileSync(tempPath, `${JSON.stringify(locks, null, 2)}\n`, "utf8");
+    writeFileSync(tempPath, `${JSON.stringify(locks, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
     renameSync(tempPath, path);
   } catch (error) {
     try {

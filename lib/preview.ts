@@ -9,7 +9,7 @@ import type {
   TelegramReplyParameters,
   TelegramSendMessageBody,
   TelegramSentMessage,
-} from "./api.ts";
+} from "./telegram-api.ts";
 import {
   buildTelegramPreviewSnapshot,
   MAX_MESSAGE_LENGTH,

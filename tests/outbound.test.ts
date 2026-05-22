@@ -17,6 +17,7 @@ import {
   createTelegramButtonActionStore,
   createTelegramButtonPromptTurn,
   createTelegramOutboundReplyArtifactSender,
+  createTelegramOutboundReplyPlanner,
   createTelegramOutboundTextPreviewRuntime,
   createTelegramOutboundTextReplyRuntime,
   createTelegramVoiceReplySender,
@@ -499,6 +500,33 @@ test("Button reply planner supports independent label blocks", () => {
       [{ text: "OK", callback_data: "btn:1" }],
       [{ text: "More", callback_data: "btn:2" }],
     ],
+  });
+});
+
+test("Outbound reply planner strips voice and button markup without losing artifacts", () => {
+  const actions: unknown[] = [];
+  const plan = createTelegramOutboundReplyPlanner({
+    register: (action) => {
+      actions.push(action);
+      return `btn:${actions.length}`;
+    },
+  })(
+    [
+      "Visible answer.",
+      "",
+      "<!-- telegram_voice: Speak this summary. -->",
+      "",
+      '<!-- telegram_button label=Continue prompt="Continue with context." -->',
+    ].join("\n"),
+  );
+  assert.equal(plan.markdown, "Visible answer.");
+  assert.equal(plan.voiceText, "Speak this summary.");
+  assert.deepEqual(plan.voiceReplies, [{ text: "Speak this summary." }]);
+  assert.deepEqual(actions, [
+    { text: "Continue", prompt: "Continue with context." },
+  ]);
+  assert.deepEqual(plan.replyMarkup, {
+    inline_keyboard: [[{ text: "Continue", callback_data: "btn:1" }]],
   });
 });
 

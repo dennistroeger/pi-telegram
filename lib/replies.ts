@@ -4,7 +4,10 @@
  * Owns rendered-message delivery, reply transport wiring, and plain or markdown final replies
  */
 
-import type { TelegramReplyParameters, TelegramSentMessage } from "./api.ts";
+import type {
+  TelegramReplyParameters,
+  TelegramSentMessage,
+} from "./telegram-api.ts";
 import {
   renderTelegramMessage,
   type TelegramRenderedChunk,

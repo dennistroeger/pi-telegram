@@ -630,7 +630,7 @@ test("Inbound handler composition: critical failure aborts composition", async (
       {
         type: "voice",
         template: [
-          { template: "scan --file {file}", critical: true },
+          { template: "scan --file {file}", failure: "root" },
           "transcribe --file {file}",
           "summarize --file {file}",
         ],
@@ -656,7 +656,7 @@ test("Inbound handler composition: non-critical failure continues, critical stop
     handlers: [
       {
         type: "voice",
-        template: ["step-a", { template: "step-b", critical: true }, "step-c"],
+        template: ["step-a", { template: "step-b", failure: "root" }, "step-c"],
       },
     ],
     cwd: "/work",

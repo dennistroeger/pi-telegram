@@ -5,7 +5,7 @@ Living index of project documentation in `/docs`.
 ## Documents
 
 - [architecture.md](./architecture.md) — Overview of the Telegram bridge runtime, queueing model, rendering pipeline, and interactive controls
-- [public-api.md](./public-api.md) — Stable public API map: package entrypoints, commands, config, assistant markup, extension APIs, and compatibility boundaries
+- [public-api.md](./public-api.md) — Stable public API map: package entrypoints, commands, config, assistant markup, extension APIs, smoke examples, and compatibility boundaries
 - [command-templates.md](./command-templates.md) — Portable command-template standard core
 - [inbound.md](./inbound.md) — Local `pi-telegram` inbound text/media handler bus, programmatic inbound handlers, registered STT provider fallbacks, legacy `attachmentHandlers` compatibility, placeholders, and fallbacks
 - [outbound.md](./outbound.md) — Local `pi-telegram` outbound-handler config, text/voice/button behavior, voice synthesis provider fallback priority, artifact outputs, and callback routing

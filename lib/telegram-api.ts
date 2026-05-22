@@ -416,13 +416,13 @@ async function writeTelegramDownloadResponse(
   if (!response.body) {
     const buffer = Buffer.from(await response.arrayBuffer());
     assertTelegramFileSizeWithinLimit(buffer.byteLength, maxFileSizeBytes);
-    await writeFile(targetPath, buffer);
+    await writeFile(targetPath, buffer, { mode: 0o600 });
     return;
   }
   await pipeline(
     Readable.from(response.body, { objectMode: false }),
     createTelegramDownloadLimitTransform(maxFileSizeBytes),
-    createWriteStream(targetPath),
+    createWriteStream(targetPath, { mode: 0o600 }),
   );
 }
 
@@ -536,7 +536,7 @@ export async function prepareTelegramTempDir(
   tempDir: string,
   maxAgeMs: number,
 ): Promise<number> {
-  await mkdir(tempDir, { recursive: true });
+  await mkdir(tempDir, { recursive: true, mode: 0o700 });
   return cleanupTelegramTempFiles(tempDir, maxAgeMs);
 }
 
@@ -630,7 +630,7 @@ export async function downloadTelegramFile(
     { signal: options?.signal },
   );
   assertTelegramFileSizeWithinLimit(file.file_size, options?.maxFileSizeBytes);
-  await mkdir(tempDir, { recursive: true });
+  await mkdir(tempDir, { recursive: true, mode: 0o700 });
   const targetPath = join(
     tempDir,
     `${randomUUID()}-${sanitizeFileName(suggestedName)}`,
