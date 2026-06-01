@@ -24,8 +24,11 @@ import {
   getTelegramCommandExecutionMode,
   getTelegramCommandMessageTarget,
   handleTelegramAbortCommand,
+  handleTelegramCompactAllCommand,
+  handleTelegramCompactAllConfirmationCallback,
   handleTelegramCompactCommand,
   handleTelegramCompactConfirmationCallback,
+  openTelegramCompactAllConfirmation,
   handleTelegramModelCommand,
   handleTelegramStatusCommand,
   handleTelegramStopCommand,
@@ -91,6 +94,10 @@ test("Command helpers expose Telegram bot command definitions", () => {
       description: "🟢 Open menu / Pair bridge",
     },
     { command: "compact", description: "🗜 Compact current session" },
+    {
+      command: "compact-all",
+      description: "🆕 Reset session (new chat)",
+    },
     {
       command: "next",
       description: "⏩ Force next turn",
@@ -435,6 +442,10 @@ test("Command helpers build command actions", () => {
   });
   assert.deepEqual(buildTelegramCommandAction("compact"), {
     kind: "compact",
+    executionMode: "immediate",
+  });
+  assert.deepEqual(buildTelegramCommandAction("compact-all"), {
+    kind: "compact-all",
     executionMode: "immediate",
   });
   assert.deepEqual(buildTelegramCommandAction("status"), {

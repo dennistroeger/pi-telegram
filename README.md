@@ -86,6 +86,7 @@ Use these inside the Telegram DM with your bot. The main entrypoint is `/start`:
 
 - **`/start`**: Pair the first Telegram user when needed, register bot commands, and open the inline application menu with command help, prompt-template commands, status rows, model controls, thinking controls, settings, and queue controls.
 - **`/compact`**: Ask for inline confirmation, then start session compaction when the session is idle; Telegram shows the native typing indicator while manual or automatic compaction is running.
+- **`/compact-all`**: Ask for inline confirmation, then rewrite the session file to a minimal tree and reload π — full context wipe, like a new chat (not a summary).
 - **`/next`**: Dispatch the next queued turn, aborting π first if needed.
 - **`/continue`**: Enqueue a priority `continue` prompt.
 - **`/abort`**: Abort the active run without touching the queue. Abort-history applies only to Telegram-owned active turns; later local prompts do not make the next Telegram prompt absorb older queue items.

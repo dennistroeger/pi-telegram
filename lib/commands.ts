@@ -5,7 +5,21 @@
  */
 
 import { pairTelegramUserIfNeeded } from "./config.ts";
-import type { ExtensionAPI, ExtensionCommandContext } from "./pi.ts";
+import {
+  buildPiExtensionSlashLine,
+  findPiExtensionSlashCommand,
+} from "./pi-extension-slash.ts";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ExtensionContext,
+  PiSlashCommandInfo,
+} from "./pi.ts";
+import { getTelegramSessionResetContext } from "./pi.ts";
+import {
+  handleTelegramSessionResetCommand,
+  resetSessionFile,
+} from "./session-reset.ts";
 import {
   createTelegramControlItemBuilder,
   createTelegramControlQueueController,
@@ -33,6 +47,7 @@ export const TELEGRAM_COMMAND_EMOJI = {
   model: "🤖",
   thinking: "🧠",
   compact: "🗜",
+  "compact-all": "🆕",
   queue: "🔢",
   next: "⏩",
   continue: "▶️",
@@ -75,6 +90,13 @@ export const TELEGRAM_BUILTIN_BOT_COMMANDS: readonly TelegramBotCommandDefinitio
       description: formatTelegramBotCommandDescription(
         "compact",
         "Compact current session",
+      ),
+    },
+    {
+      command: "compact-all",
+      description: formatTelegramBotCommandDescription(
+        "compact-all",
+        "Reset session (new chat)",
       ),
     },
     {
@@ -218,6 +240,40 @@ export function registerTelegramBridgeCommands(
       deps.updateStatus(ctx);
     },
   });
+  pi.registerCommand("compact-all", {
+    description:
+      "Reload session after Telegram /compact-all reset (reload-only)",
+    handler: async (args, ctx) => {
+      if (args.trim() !== "reload-only") return;
+      try {
+        if (!ctx.isIdle()) await ctx.waitForIdle();
+      } catch {
+        // proceed even if wait fails
+      }
+      const sessionFile = ctx.sessionManager.getSessionFile();
+      if (!sessionFile) {
+        const result = await ctx.newSession();
+        if (!result.cancelled) {
+          ctx.ui.notify(
+            "New session — context cleared. Send your next message to start fresh.",
+            "success",
+          );
+        }
+        return;
+      }
+      const result = await ctx.switchSession(sessionFile, {
+        withSession: async (freshCtx) => {
+          freshCtx.ui.notify(
+            "New session — context cleared. Send your next message to start fresh.",
+            "success",
+          );
+        },
+      });
+      if (result.cancelled) {
+        ctx.ui.notify("Session reload cancelled.", "info");
+      }
+    },
+  });
 }
 
 export const TELEGRAM_RESERVED_COMMAND_NAMES = [
@@ -228,6 +284,7 @@ export const TELEGRAM_RESERVED_COMMAND_NAMES = [
   "status",
   "queue",
   "compact",
+  "compact-all",
   "model",
   "thinking",
   "settings",
@@ -259,6 +316,7 @@ export type TelegramCommandAction =
   | { kind: "continue"; executionMode: "immediate" }
   | { kind: "queue"; executionMode: "immediate" }
   | { kind: "compact"; executionMode: "immediate" }
+  | { kind: "compact-all"; executionMode: "immediate" }
   | { kind: "status"; executionMode: "immediate" }
   | { kind: "model"; executionMode: "immediate" }
   | { kind: "thinking"; executionMode: "immediate" }
@@ -278,6 +336,7 @@ export interface TelegramCommandActionDeps<TMessage, TContext> {
   handleContinue: (message: TMessage, ctx: TContext) => Promise<void>;
   handleQueue: (message: TMessage, ctx: TContext) => Promise<void>;
   handleCompact: (message: TMessage, ctx: TContext) => Promise<void>;
+  handleCompactAll?: (message: TMessage, ctx: TContext) => Promise<void>;
   handleStatus: (message: TMessage, ctx: TContext) => Promise<void>;
   handleModel: (message: TMessage, ctx: TContext) => Promise<void>;
   handleThinking: (message: TMessage, ctx: TContext) => Promise<void>;
@@ -566,6 +625,11 @@ export interface TelegramCommandOrPromptRuntimeDeps<TMessage, TContext> {
     message: TMessage,
     ctx: TContext,
   ) => Promise<boolean>;
+  getPiExtensionSlashCommands?: () => readonly PiSlashCommandInfo[];
+  executePiExtensionSlashCommand?: (
+    line: string,
+    ctx: TContext,
+  ) => Promise<boolean>;
   expandPromptTemplateCommand?: (
     commandName: string,
     args: string,
@@ -621,6 +685,8 @@ export interface TelegramCommandRuntimeDeps<
   persistConfig: () => Promise<void>;
   sendTextReply: (message: TMessage, text: string) => Promise<void>;
   sendInteractiveMessage?: TelegramCompactConfirmationDeps["sendInteractiveMessage"];
+  getThinkingLevel?: () => string;
+  executePiExtensionSlashCommand?: (line: string) => Promise<boolean>;
 }
 
 export const TELEGRAM_APP_MENU_INTRO_HTML = [
@@ -628,6 +694,7 @@ export const TELEGRAM_APP_MENU_INTRO_HTML = [
   "",
   `${formatTelegramCommandEmojiPrefix("start")}/start — Open menu / Pair bridge`,
   `${formatTelegramCommandEmojiPrefix("compact")}/compact — Compact current session`,
+  `${formatTelegramCommandEmojiPrefix("compact-all")}/compact-all — Reset session (new chat)`,
   `${formatTelegramCommandEmojiPrefix("next")}/next — Force next turn`,
   `${formatTelegramCommandEmojiPrefix("continue")}/continue — Queue continue prompt`,
   `${formatTelegramCommandEmojiPrefix("abort")}/abort — Abort π`,
@@ -696,6 +763,7 @@ export const TELEGRAM_COMMAND_ACTIONS = {
   status: { kind: "status", executionMode: "immediate" },
   queue: { kind: "queue", executionMode: "immediate" },
   compact: { kind: "compact", executionMode: "immediate" },
+  "compact-all": { kind: "compact-all", executionMode: "immediate" },
   model: { kind: "model", executionMode: "immediate" },
   thinking: { kind: "thinking", executionMode: "immediate" },
   settings: { kind: "settings", executionMode: "immediate" },
@@ -945,6 +1013,139 @@ export async function handleTelegramCompactCommand(
   if (compactionStillInProgress) deps.startTypingLoop?.();
 }
 
+export interface TelegramCompactAllCommandDeps extends TelegramRuntimeEventRecorderPort {
+  isIdle: () => boolean;
+  hasPendingMessages: () => boolean;
+  hasActiveTelegramTurn: () => boolean;
+  hasDispatchPending: () => boolean;
+  hasQueuedTelegramItems: () => boolean;
+  isCompactionInProgress: () => boolean;
+  updateStatus: () => void;
+  dispatchNextQueuedTelegramTurn: () => void;
+  requestDeferredDispatchNextQueuedTelegramTurn?: (
+    dispatch: () => void,
+  ) => void;
+  startTypingLoop?: () => void;
+  stopTypingLoop?: () => void;
+  runSessionReset: () => Promise<void>;
+  sendTextReply: (text: string) => Promise<void>;
+  suppressStartNotice?: boolean;
+}
+
+export function buildTelegramCompactAllConfirmationReplyMarkup(): TelegramCompactConfirmationReplyMarkup {
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: "🆕 Yes, reset all",
+          callback_data: "compact-all:confirm",
+        },
+        { text: "❌ No", callback_data: "compact-all:cancel" },
+      ],
+    ],
+  };
+}
+
+export function getTelegramCompactAllConfirmationHtml(): string {
+  return "<b>Reset session?</b>\nAll context will be cleared (like a new chat).";
+}
+
+export async function openTelegramCompactAllConfirmation(
+  chatId: number,
+  deps: TelegramCompactConfirmationDeps,
+): Promise<void> {
+  await deps.sendInteractiveMessage(
+    chatId,
+    getTelegramCompactAllConfirmationHtml(),
+    "html",
+    buildTelegramCompactAllConfirmationReplyMarkup(),
+  );
+}
+
+export interface TelegramCompactAllConfirmationCallbackDeps<TContext> {
+  ctx: TContext;
+  answerCallbackQuery: TelegramCompactConfirmationCallbackDeps<TContext>["answerCallbackQuery"];
+  editInteractiveMessage: TelegramCompactConfirmationCallbackDeps<TContext>["editInteractiveMessage"];
+  runSessionReset: (
+    ctx: TContext,
+    chatId: number,
+    replyToMessageId: number,
+  ) => Promise<void>;
+}
+
+export async function handleTelegramCompactAllConfirmationCallback<TContext>(
+  query: TelegramCompactConfirmationCallbackQuery,
+  deps: TelegramCompactAllConfirmationCallbackDeps<TContext>,
+): Promise<boolean> {
+  if (
+    query.data !== "compact-all:confirm" &&
+    query.data !== "compact-all:cancel"
+  ) {
+    return false;
+  }
+  const chatId = query.message?.chat?.id;
+  const messageId = query.message?.message_id;
+  if (typeof chatId !== "number" || typeof messageId !== "number") {
+    await deps.answerCallbackQuery(query.id, "Interactive message expired.");
+    return true;
+  }
+  if (query.data === "compact-all:cancel") {
+    await deps.editInteractiveMessage(
+      chatId,
+      messageId,
+      "Session reset cancelled.",
+      "plain",
+      { inline_keyboard: [] },
+    );
+    await deps.answerCallbackQuery(query.id);
+    return true;
+  }
+  await deps.editInteractiveMessage(
+    chatId,
+    messageId,
+    "Session reset started.",
+    "plain",
+    { inline_keyboard: [] },
+  );
+  await deps.answerCallbackQuery(query.id);
+  await deps.runSessionReset(deps.ctx, chatId, messageId);
+  return true;
+}
+
+export async function handleTelegramCompactAllCommand(
+  deps: TelegramCompactAllCommandDeps,
+): Promise<void> {
+  if (
+    !deps.isIdle() ||
+    deps.hasPendingMessages() ||
+    deps.hasActiveTelegramTurn() ||
+    deps.hasDispatchPending() ||
+    deps.hasQueuedTelegramItems() ||
+    deps.isCompactionInProgress()
+  ) {
+    await deps.sendTextReply(
+      "Cannot reset while π or the Telegram queue is busy. Wait for queued turns to finish or send /abort first.",
+    );
+    return;
+  }
+  deps.updateStatus();
+  if (deps.startTypingLoop) deps.startTypingLoop();
+  try {
+    if (!deps.suppressStartNotice) {
+      await deps.sendTextReply("Session reset started.");
+    }
+    await deps.runSessionReset();
+    dispatchNextQueuedTelegramTurnAfterCompact(deps);
+  } catch (error) {
+    deps.recordRuntimeEvent?.("compact-all", error);
+    const errorMessage = getTelegramCommandErrorMessage(error);
+    await deps.sendTextReply(`Session reset failed: ${errorMessage}`);
+  } finally {
+    deps.stopTypingLoop?.();
+    deps.updateStatus();
+  }
+}
+
 function isTelegramStaleContextError(error: unknown): boolean {
   return (
     error instanceof Error &&
@@ -1001,6 +1202,10 @@ export async function executeTelegramCommandAction<TMessage, TContext>(
       return true;
     case "compact":
       await deps.handleCompact(message, ctx);
+      return true;
+    case "compact-all":
+      if (!deps.handleCompactAll) return false;
+      await deps.handleCompactAll(message, ctx);
       return true;
     case "status":
       await deps.handleStatus(message, ctx);
@@ -1100,6 +1305,8 @@ export function createTelegramCommandHandlerTargetRuntime<
     persistConfig: deps.persistConfig,
     sendTextReply: commandTargetRuntime.sendTextReply,
     recordRuntimeEvent: deps.recordRuntimeEvent,
+    getThinkingLevel: deps.getThinkingLevel,
+    executePiExtensionSlashCommand: deps.executePiExtensionSlashCommand,
   });
 }
 
@@ -1133,6 +1340,23 @@ export function createTelegramCommandOrPromptRuntime<TMessage, TContext>(
         ctx,
       );
       if (handled) return;
+      if (
+        command &&
+        deps.getPiExtensionSlashCommands &&
+        deps.executePiExtensionSlashCommand
+      ) {
+        const extensionCommand = findPiExtensionSlashCommand(
+          command.name,
+          deps.getPiExtensionSlashCommands(),
+        );
+        if (extensionCommand) {
+          await deps.executePiExtensionSlashCommand(
+            buildPiExtensionSlashLine(command),
+            ctx,
+          );
+          return;
+        }
+      }
       if (command?.name && deps.expandPromptTemplateCommand) {
         const expanded = deps.expandPromptTemplateCommand(
           command.name,
@@ -1244,6 +1468,58 @@ async function handleTelegramCommandRuntime<
                   )
               : undefined,
           compact: (callbacks) => deps.compact(commandCtx, callbacks),
+          startTypingLoop: deps.startTypingLoop
+            ? () => deps.startTypingLoop?.(commandCtx, nextMessage.chat.id)
+            : undefined,
+          stopTypingLoop: deps.stopTypingLoop,
+          sendTextReply: sendReplyFor(nextMessage),
+          recordRuntimeEvent: deps.recordRuntimeEvent,
+        });
+      },
+      handleCompactAll: async (nextMessage, commandCtx) => {
+        const runSessionReset = async () => {
+          await handleTelegramSessionResetCommand(commandCtx, {
+            getSessionContext: (ctx) =>
+              getTelegramSessionResetContext(
+                ctx as ExtensionContext,
+                deps.getThinkingLevel?.() ?? "off",
+              ),
+            resetSessionFile,
+            reloadSession: async () => {
+              if (!deps.executePiExtensionSlashCommand) return false;
+              return deps.executePiExtensionSlashCommand(
+                "/compact-all reload-only",
+              );
+            },
+            abortCurrentTurn: deps.abortCurrentTurn,
+            isIdle: deps.isIdle,
+            sendTextReply: sendReplyFor(nextMessage),
+          });
+        };
+        if (deps.sendInteractiveMessage) {
+          await openTelegramCompactAllConfirmation(nextMessage.chat.id, {
+            sendInteractiveMessage: deps.sendInteractiveMessage,
+          });
+          return;
+        }
+        await handleTelegramCompactAllCommand({
+          isIdle: () => deps.isIdle(commandCtx),
+          hasPendingMessages: () => deps.hasPendingMessages(commandCtx),
+          hasActiveTelegramTurn: deps.hasActiveTelegramTurn,
+          hasDispatchPending: deps.hasDispatchPending,
+          hasQueuedTelegramItems: deps.hasQueuedTelegramItems,
+          isCompactionInProgress: deps.isCompactionInProgress,
+          updateStatus: updateStatusFor(commandCtx),
+          dispatchNextQueuedTelegramTurn: () =>
+            deps.dispatchNextQueuedTelegramTurn(commandCtx),
+          requestDeferredDispatchNextQueuedTelegramTurn:
+            deps.requestDeferredDispatchNextQueuedTelegramTurn
+              ? (dispatch) =>
+                  deps.requestDeferredDispatchNextQueuedTelegramTurn?.(() =>
+                    dispatch(),
+                  )
+              : undefined,
+          runSessionReset,
           startTypingLoop: deps.startTypingLoop
             ? () => deps.startTypingLoop?.(commandCtx, nextMessage.chat.id)
             : undefined,

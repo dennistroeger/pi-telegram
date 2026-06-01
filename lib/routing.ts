@@ -6,6 +6,11 @@
 
 import { readFile } from "node:fs/promises";
 import * as Commands from "./commands.ts";
+import { getTelegramSessionResetContext } from "./pi.ts";
+import {
+  handleTelegramSessionResetCommand,
+  resetSessionFile,
+} from "./session-reset.ts";
 import type { TelegramConfigStore } from "./config.ts";
 import type { TelegramSectionRegistry } from "./sections.ts";
 import type { TelegramInboundHandlerRuntime } from "./inbound.ts";
@@ -113,6 +118,7 @@ export interface TelegramInboundRouteRuntimeDeps<
   getCommands: () => Parameters<
     typeof PromptTemplates.getTelegramPromptTemplateCommands
   >[0];
+  executePiExtensionSlashCommand?: (line: string) => Promise<boolean>;
   downloadFile: Media.DownloadTelegramMessageFilesDeps["downloadFile"];
   resolveTimeLine?: (chatId: number) => string | null;
   getThinkingLevel: () => Model.ThinkingLevel;
@@ -302,6 +308,64 @@ export function createTelegramInboundRouteRuntime<
         },
       });
     if (handledByCompact) return;
+    const handledByCompactAll =
+      await Commands.handleTelegramCompactAllConfirmationCallback(query, {
+        ctx,
+        answerCallbackQuery: deps.answerCallbackQuery,
+        editInteractiveMessage: deps.editInteractiveMessage ?? (async () => {}),
+        runSessionReset: async (resetCtx, chatId, replyToMessageId) => {
+          await Commands.handleTelegramCompactAllCommand({
+            isIdle: () => deps.isIdle(resetCtx),
+            hasPendingMessages: () => deps.hasPendingMessages(resetCtx),
+            hasActiveTelegramTurn: deps.activeTurnRuntime.has,
+            hasDispatchPending: deps.bridgeRuntime.lifecycle.hasDispatchPending,
+            hasQueuedTelegramItems: deps.telegramQueueStore.hasQueuedItems,
+            isCompactionInProgress:
+              deps.bridgeRuntime.lifecycle.isCompactionInProgress,
+            updateStatus: () => deps.updateStatus(resetCtx),
+            dispatchNextQueuedTelegramTurn: () =>
+              deps.dispatchNextQueuedTelegramTurn(resetCtx),
+            requestDeferredDispatchNextQueuedTelegramTurn:
+              deps.requestDeferredDispatchNextQueuedTelegramTurn
+                ? (dispatch) =>
+                    deps.requestDeferredDispatchNextQueuedTelegramTurn?.(() =>
+                      dispatch(),
+                    )
+                : undefined,
+            runSessionReset: async () => {
+              await handleTelegramSessionResetCommand(resetCtx, {
+                getSessionContext: (ctx) =>
+                  getTelegramSessionResetContext(
+                    ctx as Parameters<typeof getTelegramSessionResetContext>[0],
+                    deps.getThinkingLevel(),
+                  ),
+                resetSessionFile,
+                reloadSession: async () => {
+                  if (!deps.executePiExtensionSlashCommand) return false;
+                  return deps.executePiExtensionSlashCommand(
+                    "/compact-all reload-only",
+                  );
+                },
+                abortCurrentTurn: deps.bridgeRuntime.abort.abortTurn,
+                isIdle: deps.isIdle,
+                sendTextReply: (text) =>
+                  deps
+                    .sendTextReply(chatId, replyToMessageId, text)
+                    .then(() => {}),
+              });
+            },
+            startTypingLoop: deps.startTypingLoop
+              ? () => deps.startTypingLoop?.(resetCtx, chatId)
+              : undefined,
+            stopTypingLoop: deps.stopTypingLoop,
+            sendTextReply: (text) =>
+              deps.sendTextReply(chatId, replyToMessageId, text).then(() => {}),
+            suppressStartNotice: true,
+            recordRuntimeEvent: deps.recordRuntimeEvent,
+          });
+        },
+      });
+    if (handledByCompactAll) return;
     const handledByQueue = await deps.queueMenuCallbackHandler(query, ctx);
     if (handledByQueue) return;
     const handledBySettings = await deps.settingsMenuCallbackHandler?.(
@@ -414,6 +478,10 @@ export function createTelegramInboundRouteRuntime<
     sendTextReply: deps.sendTextReply,
     sendInteractiveMessage: deps.sendInteractiveMessage,
     recordRuntimeEvent: deps.recordRuntimeEvent,
+    getThinkingLevel: deps.getThinkingLevel,
+    executePiExtensionSlashCommand: deps.executePiExtensionSlashCommand
+      ? async (line) => deps.executePiExtensionSlashCommand!(line)
+      : undefined,
   });
   const promptEnqueue = Queue.createTelegramPromptEnqueueController<
     TMessage,
@@ -434,6 +502,10 @@ export function createTelegramInboundRouteRuntime<
   >({
     extractRawText: Media.extractFirstTelegramMessageText,
     handleCommand: commandHandler,
+    getPiExtensionSlashCommands: deps.getCommands,
+    executePiExtensionSlashCommand: deps.executePiExtensionSlashCommand
+      ? async (line, _ctx) => deps.executePiExtensionSlashCommand!(line)
+      : undefined,
     expandPromptTemplateCommand: (commandName, args) =>
       PromptTemplates.expandTelegramPromptTemplateCommand(
         commandName,

@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-No open changes.
+- `[Commands]` Added `/compact-all`: inline confirmation (like `/compact`), then rewrites the current session JSONL to a minimal tree and reloads π — full context wipe, like a new chat. Requires `@earendil-works/pi-coding-agent` with `executeExtensionSlashCommand` for reload.
+- `[Commands]` Telegram routes `/name` lines that match registered Pi **extension** slash commands through `executeExtensionSlashCommand` before prompt enqueue (prompt templates unchanged).
 
 ## 0.15.1: Typing Keepalive Cadence
 

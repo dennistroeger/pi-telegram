@@ -41,6 +41,7 @@ export default function (pi: Pi.ExtensionAPI) {
   const piRuntime = Pi.createExtensionApiRuntimePorts(pi);
   const {
     getCommands,
+    executeExtensionSlashCommand,
     getThinkingLevel,
     sendUserMessage,
     setModel,
@@ -354,6 +355,7 @@ export default function (pi: Pi.ExtensionAPI) {
     sendTextReply,
     setMyCommands,
     getCommands,
+    executePiExtensionSlashCommand: executeExtensionSlashCommand,
     downloadFile: downloadTelegramBridgeFile,
     resolveTimeLine: timeInjectionRuntime.resolveLine,
     getThinkingLevel,

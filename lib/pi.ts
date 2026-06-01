@@ -42,6 +42,11 @@ export interface PiSettingsManager {
 
 export type PiSlashCommandInfo = SlashCommandInfo;
 
+/** Optional on newer @earendil-works/pi-coding-agent builds. */
+export type PiExecuteExtensionSlashCommand = (
+  text: string,
+) => Promise<boolean>;
+
 export interface PiExtensionApiRuntimePorts {
   sendUserMessage: ExtensionAPI["sendUserMessage"];
   exec: ExtensionAPI["exec"];
@@ -49,6 +54,7 @@ export interface PiExtensionApiRuntimePorts {
   getThinkingLevel: ExtensionAPI["getThinkingLevel"];
   setThinkingLevel: ExtensionAPI["setThinkingLevel"];
   setModel: ExtensionAPI["setModel"];
+  executeExtensionSlashCommand?: PiExecuteExtensionSlashCommand;
 }
 
 export function createExtensionApiRuntimePorts(
@@ -62,6 +68,11 @@ export function createExtensionApiRuntimePorts(
     | "setModel"
   >,
 ): PiExtensionApiRuntimePorts {
+  const executeExtensionSlashCommand =
+    "executeExtensionSlashCommand" in api &&
+    typeof api.executeExtensionSlashCommand === "function"
+      ? api.executeExtensionSlashCommand.bind(api)
+      : undefined;
   return {
     sendUserMessage: (content) => api.sendUserMessage(content),
     exec: (command, args, options) => api.exec(command, args, options),
@@ -69,6 +80,7 @@ export function createExtensionApiRuntimePorts(
     getThinkingLevel: () => api.getThinkingLevel(),
     setThinkingLevel: (level) => api.setThinkingLevel(level),
     setModel: (model) => api.setModel(model),
+    executeExtensionSlashCommand,
   };
 }
 
@@ -115,4 +127,17 @@ export function compactExtensionContext(
   callbacks: Parameters<ExtensionContext["compact"]>[0],
 ): ReturnType<ExtensionContext["compact"]> {
   return ctx.compact(callbacks);
+}
+
+export function getTelegramSessionResetContext(
+  ctx: ExtensionContext,
+  thinkingLevel: string,
+) {
+  return {
+    sessionFile: ctx.sessionManager.getSessionFile(),
+    cwd: ctx.cwd,
+    provider: ctx.model?.provider ?? "cursor",
+    model: ctx.model?.id ?? "composer-2.5",
+    thinking: thinkingLevel,
+  };
 }
